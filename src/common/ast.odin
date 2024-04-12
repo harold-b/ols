@@ -26,6 +26,8 @@ keyword_map: map[string]bool = {
 	"any"           = true,
 	"u32"           = true,
 	"u128"          = true,
+	"b8"            = true,
+	"b16"           = true,
 	"b32"           = true,
 	"b64"           = true,
 	"true"          = true,
@@ -700,8 +702,11 @@ free_ast_node :: proc(node: ^ast.Node, allocator: mem.Allocator) {
 		free_ast(n.elem, allocator)
 	case ^Matrix_Type:
 		free_ast(n.elem, allocator)
+	case ^Relative_Type:
+		free_ast(n.tag, allocator)
+		free_ast(n.type, allocator)
 	case:
-		panic(fmt.aprintf("free Unhandled node kind: %T", n))
+		panic(fmt.aprintf("free Unhandled node kind: %v", node.derived))
 	}
 
 	mem.free(node, allocator)
@@ -911,7 +916,6 @@ node_equal_node :: proc(a, b: ^ast.Node) -> bool {
 	case ^Typeid_Type:
 		return true
 	case:
-		log.warn("Unhandled poly node kind: %T", m)
 	}
 
 	return false

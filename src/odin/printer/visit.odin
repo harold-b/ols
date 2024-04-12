@@ -577,6 +577,11 @@ is_values_nestable_if_break_assign :: proc(list: []^ast.Expr) -> bool {
 		#partial switch v in expr.derived {
 		case ^ast.Call_Expr, ^ast.Comp_Lit, ^ast.Or_Return_Expr:
 			return true
+		case ^ast.Unary_Expr:
+			#partial switch v2 in v.expr.derived {
+			case ^ast.Call_Expr:
+				return true
+			}
 		}
 	}
 	return false
@@ -1800,6 +1805,11 @@ visit_expr :: proc(
 		if v.align != nil {
 			document = cons_with_nopl(document, text("#align"))
 			document = cons_with_nopl(document, visit_expr(p, v.align))
+		}
+
+		if v.field_align != nil {
+			document = cons_with_nopl(document, text("#field_align"))
+			document = cons_with_nopl(document, visit_expr(p, v.field_align))
 		}
 
 		document = cons_with_nopl(
