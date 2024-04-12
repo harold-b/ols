@@ -5,16 +5,23 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "cppvsdbg",
+            "type": "lldb",
             "request": "attach",
-            "name": "Attach OLS",
-            "processId": "${command:pickProcess}"
-        }
+            "name": "Attach",
+            // "pid": "41845"
+            "pid": "${command:pickMyProcess}" // use ${command:pickProcess} to pick other users' processes
+        },
         {
-            "type": "cppvsdbg",
+            "type": "cppdbg",
             "request": "launch",
-            "name": "Run unit",
-            "program": "C:\\Users\\Daniel\\Desktop\\Computer_Science\\ols\\test_unit.exe",
+            "name": "Debug macOS (cppdbg)",
+            "program": "${workspaceFolder}/ols",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            // "preLaunchTask": "build",
+            "osx": {
+                "MIMode": "lldb"
+            }
         }
     ]
 }
