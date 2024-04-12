@@ -15,4 +15,5 @@
 /odinfmt
 ols.json
 
+.DS_Store
 *.dSYM
