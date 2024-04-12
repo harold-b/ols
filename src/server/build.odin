@@ -72,7 +72,7 @@ try_build_package :: proc(pkg_name: string) {
 
 	mem.arena_init(
 		&temp_arena,
-		make([]byte, mem.Megabyte * 25, runtime.default_allocator()),
+		make([]byte, mem.Megabyte * 325, runtime.default_allocator()),
 	)
 	defer delete(temp_arena.data)
 
