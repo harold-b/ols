@@ -5,11 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "lldb",
+            "name": "Attach  (lldb)",
             "request": "attach",
-            "name": "Attach",
+            "type": "lldb",
             // "pid": "41845"
-            "pid": "${command:pickMyProcess}" // use ${command:pickProcess} to pick other users' processes
+            "pid": "${command:pickMyProcess}", // use ${command:pickProcess} to pick other users' processes
+            "initCommands": [
+                "command source ${env:HOME}/.lldbinit"
+            ]
         },
         {
             "type": "cppdbg",
