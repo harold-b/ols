@@ -4,11 +4,13 @@
 	"name": "Odin",
 	"patterns": [
 		{ "include": "#package-name-declaration" },
+		{ "include": "#import-declaration" },
 		{ "include": "#statements" }
 	],
 	"repository": {
 		"statements": {
 			"patterns": [
+				{ "include": "#attribute" },
 				{ "include": "#procedure-assignment" },
 				{ "include": "#type-assignment" },
 				{ "include": "#distinct-type-assignment" },
@@ -46,6 +48,37 @@
 				{ "include": "#variable-name" }
 			]
 		},
+		"attribute": {
+			"patterns": [{
+				"name": "meta.attribute.odin",
+				"match": "(@)\\s*([A-Za-z_]\\w*)\\b",
+				"captures": {
+					"1": {"name": "keyword.control.attribute.odin"},
+					"2": {"name": "entity.other.attribute-name.odin"}
+				}
+			}, {
+				"name": "meta.attribute.odin",
+				"begin": "(@)\\s*(\\()",
+				"beginCaptures": {
+					"1": {"name": "keyword.control.attribute.odin"},
+					"2": {"name": "meta.brace.round.odin"}
+				},
+				"end": "\\)",
+				"endCaptures": {"0": {"name": "meta.brace.round.odin"}},
+				"patterns": [{
+					"match": "\\b([A-Za-z_]\\w*)\\b",
+					"name": "entity.other.attribute-name.odin"
+				}, {
+					"match": ",",
+					"name": "punctuation.odin"
+				},{
+					"begin": "=",
+					"beginCaptures": {"0": {"name": "keyword.operator.assignment.odin"}},
+					"end": "(?=,|\\))",
+					"patterns": [{"include": "#expressions"}]
+				}]
+			}]
+        },
 		"procedure-assignment": {
 			"name": "meta.definition.variable.odin",
 			"begin": "\\b([A-Za-z_]\\w*)\\s*(:\\s*:|=)\\s*(#\\w+)?\\s*(?=proc\\b)",
@@ -216,6 +249,25 @@
 				"1": { "name": "keyword.control.odin" },
 				"2": { "name": "entity.name.type.module.odin" }
 			}
+		},
+		"import-declaration": {
+			"name": "meta.import.odin",
+			"begin": "\\b(import|foreign\\s+import)\\b",
+			"beginCaptures": {"0": {"name": "keyword.control.import.odin"}},
+			"end": "(?=^|;)",
+			"patterns": [
+				{	"name": "entity.name.alias.odin",
+					"begin": "\\b[A-Za-z_]\\w*",
+					"beginCaptures": {"0": {"name": "entity.name.namespace.odin"}},
+					"end": "(?=^|;)",
+					"patterns": [
+						{"include": "#strings"},
+						{"include": "#comments"}
+					]
+				},
+				{"include": "#strings"},
+				{"include": "#comments"}
+			]
 		},
 		"map-bitset": {
 			"begin": "\\b(bit_set|map)\\b",

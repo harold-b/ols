@@ -18,3 +18,5 @@ ols.json
 
 .DS_Store
 *.dSYM
+
+.vscode/settings.json

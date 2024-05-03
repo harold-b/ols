@@ -25,6 +25,16 @@
             "osx": {
                 "MIMode": "lldb"
             }
-        }
+        },
+
+        {
+            "name": "Run unit",
+            "program": "test_unit.exe",
+            "type": "lldb",
+            "request": "attach",
+            "name": "Attach lldb",
+            "pid": "${command:pickProcess}"
+        },
+
     ]
 }

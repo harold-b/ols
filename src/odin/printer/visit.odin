@@ -529,7 +529,14 @@ is_values_nestable_assign :: proc(list: []^ast.Expr) -> bool {
 
 	for expr in list {
 		#partial switch v in expr.derived {
-		case ^ast.Ident, ^ast.Binary_Expr, ^ast.Index_Expr, ^ast.Selector_Expr, ^ast.Paren_Expr, ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr:
+		case ^ast.Ident,
+		     ^ast.Binary_Expr,
+		     ^ast.Index_Expr,
+		     ^ast.Selector_Expr,
+		     ^ast.Paren_Expr,
+		     ^ast.Ternary_If_Expr,
+		     ^ast.Ternary_When_Expr,
+		     ^ast.Or_Else_Expr:
 			return true
 		}
 	}
@@ -550,7 +557,7 @@ is_values_return_stmt_callable :: proc(list: []^ast.Expr) -> bool {
 		}
 
 		#partial switch v in result.derived {
-		case ^ast.Call_Expr:
+		case ^ast.Call_Expr, ^ast.Comp_Lit:
 			return false
 		}
 	}
@@ -564,6 +571,20 @@ is_return_stmt_ending_with_call_expr :: proc(list: []^ast.Expr) -> bool {
 	}
 
 	if _, is_call := list[len(list) - 1].derived.(^ast.Call_Expr); is_call {
+		return true
+	}
+
+
+	return false
+}
+
+@(private)
+is_return_stmt_ending_with_comp_lit_expr :: proc(list: []^ast.Expr) -> bool {
+	if len(list) == 0 {
+		return false
+	}
+
+	if _, is_cmp := list[len(list) - 1].derived.(^ast.Comp_Lit); is_cmp {
 		return true
 	}
 
@@ -727,7 +748,9 @@ visit_bit_field_fields :: proc(
 
 	document := empty()
 
-	name_alignment, type_alignment := get_possible_bit_field_alignment(bit_field_type.fields)
+	name_alignment, type_alignment := get_possible_bit_field_alignment(
+		bit_field_type.fields,
+	)
 
 	for field, i in bit_field_type.fields {
 		if i == 0 && .Enforce_Newline in options {
@@ -756,7 +779,8 @@ visit_bit_field_fields :: proc(
 						cons_with_nopl(
 							cons(
 								repeat_space(
-									type_alignment - get_node_length(field.type),
+									type_alignment -
+									get_node_length(field.type),
 								),
 								text_position(p, "|", field.type.end),
 							),
@@ -791,7 +815,8 @@ visit_bit_field_fields :: proc(
 			document = cons(document, text(","))
 		}
 
-		if (i != len(bit_field_type.fields) - 1 && .Enforce_Newline in options) {
+		if (i != len(bit_field_type.fields) - 1 &&
+			   .Enforce_Newline in options) {
 			comment, _ := visit_comments(p, bit_field_type.fields[i + 1].pos)
 			document = cons(document, comment, newline(1))
 		} else if .Enforce_Newline in options {
@@ -1094,7 +1119,7 @@ visit_stmt :: proc(
 
 		set_source_position(p, v.pos)
 
-		block := visit_block_stmts(p, v.stmts, len(v.stmts) > 1)
+		block := visit_block_stmts(p, v.stmts)
 
 		comment_end, _ := visit_comments(
 			p,
@@ -1149,20 +1174,24 @@ visit_stmt :: proc(
 			)
 		}
 
-
+		//Special case for when the if statement ends with a call expression
+		/* 
+		  if my_function(
+		 	
+		  ) {	 	
+		  }
+		*/
 		if v.init != nil && is_value_decl_statement_ending_with_call(v.init) ||
 		   v.init != nil && is_assign_statement_ending_with_call(v.init) ||
 		   v.cond != nil && v.init == nil && is_value_expression_call(v.cond) {
+			break_end_document :=
+				hang(3, end_document) if v.init != nil else end_document
 			document = cons(
 				document,
 				group(
 					cons(
 						begin_document,
-						if_break_or(
-							end_document,
-							hang(3, end_document),
-							"init",
-						),
+						if_break_or(end_document, break_end_document, "init"),
 					),
 				),
 			)
@@ -1235,10 +1264,21 @@ visit_stmt :: proc(
 	case ^Case_Clause:
 		document = cons(document, text("case"))
 
-		if v.list != nil {
+
+		if v.list != nil && len(v.list) > 0 {
+			options: List_Options = {.Add_Comma}
+
+			if contains_comments_in_range(
+				p,
+				v.list[0].pos,
+				v.list[len(v.list) - 1].end,
+			) {
+				options |= {.Enforce_Newline}
+			}
+
 			document = cons_with_nopl(
 				document,
-				visit_exprs(p, v.list, {.Add_Comma}),
+				align(group(visit_exprs(p, v.list, options))),
 			)
 		}
 
@@ -1459,8 +1499,13 @@ visit_stmt :: proc(
 		} else {
 			document = cons(document, text("return"))
 
-
-			if !is_return_stmt_ending_with_call_expr(v.results) {
+			if is_return_stmt_ending_with_comp_lit_expr(v.results) {
+				document = cons(
+					document,
+					if_break_or_document(empty(), text(" ")),
+					visit_exprs(p, v.results, {.Add_Comma}),
+				)
+			} else if !is_return_stmt_ending_with_call_expr(v.results) {
 				document = cons_with_nopl(
 					document,
 					group(
@@ -1948,7 +1993,11 @@ visit_expr :: proc(
 			document = cons_with_nopl(document, text("{"))
 			document = cons(document, text("}"))
 		} else {
-			document = cons(document, break_with_space(), visit_begin_brace(p, v.pos, .Generic))
+			document = cons(
+				document,
+				break_with_space(),
+				visit_begin_brace(p, v.pos, .Generic),
+			)
 			set_source_position(p, v.fields[0].pos)
 			document = cons(
 				document,
@@ -2211,11 +2260,12 @@ visit_expr :: proc(
 
 			document = cons(document, newline(1), text_position(p, "}", v.end))
 		} else {
+			break_string := " " if v.type != nil else ""
 			document = cons(
 				document,
 				group(
 					cons(
-						if_break(" "),
+						if_break(break_string),
 						text("{"),
 						nest(
 							cons(
@@ -2420,11 +2470,7 @@ visit_end_brace :: proc(
 }
 
 @(private)
-visit_block_stmts :: proc(
-	p: ^Printer,
-	stmts: []^ast.Stmt,
-	split := false,
-) -> ^Document {
+visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt) -> ^Document {
 	document := empty()
 
 	for stmt, i in stmts {
@@ -2965,7 +3011,12 @@ get_possible_enum_alignment :: proc(exprs: []^ast.Expr) -> int {
 }
 
 @(private)
-get_possible_bit_field_alignment :: proc(fields: []^ast.Bit_Field_Field) -> (longest_name: int, longest_type: int) {
+get_possible_bit_field_alignment :: proc(
+	fields: []^ast.Bit_Field_Field,
+) -> (
+	longest_name: int,
+	longest_type: int,
+) {
 	for field in fields {
 		longest_name = max(longest_name, get_node_length(field.name))
 		longest_type = max(longest_type, get_node_length(field.type))

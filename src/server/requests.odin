@@ -1,8 +1,10 @@
 package server
 
+import "base:intrinsics"
+import "base:runtime"
+
 import "core:encoding/json"
 import "core:fmt"
-import "core:intrinsics"
 import "core:log"
 import "core:mem"
 import "core:odin/ast"
@@ -18,8 +20,6 @@ import "core:thread"
 import "core:time"
 
 import "src:common"
-
-import "base:runtime"
 
 Header :: struct {
 	content_length: int,
@@ -429,6 +429,10 @@ read_ols_initialize_options :: proc(
 	config.enable_procedure_snippet =
 		ols_config.enable_procedure_snippet.(bool) or_else config.enable_procedure_snippet
 
+	config.enable_checker_only_saved =
+		ols_config.enable_checker_only_saved.(bool) or_else config.enable_checker_only_saved
+		
+
 	if ols_config.odin_command != "" {
 		config.odin_command = strings.clone(
 			ols_config.odin_command,
@@ -701,6 +705,7 @@ request_initialize :: proc(
 	config.enable_inlay_hints = false
 	config.enable_fake_method = false
 	config.enable_procedure_snippet = true
+	config.enable_checker_only_saved = false
 
 	read_ols_config :: proc(
 		file: string,
@@ -788,32 +793,6 @@ request_initialize :: proc(
 	signatureTriggerCharacters := []string{"(", ","}
 	signatureRetriggerCharacters := []string{","}
 
-	token_type := type_info_of(SemanticTokenTypes).variant.(runtime.Type_Info_Named).base.variant.(runtime.Type_Info_Enum)
-	token_modifier := type_info_of(SemanticTokenModifiers).variant.(runtime.Type_Info_Named).base.variant.(runtime.Type_Info_Enum)
-
-	token_types := make(
-		[]string,
-		len(token_type.names),
-		context.temp_allocator,
-	)
-	token_modifiers := make(
-		[]string,
-		len(token_modifier.names),
-		context.temp_allocator,
-	)
-
-	for name, i in token_type.names {
-		if name == "EnumMember" {
-			token_types[i] = "enumMember"
-		} else {
-			token_types[i] = strings.to_lower(name, context.temp_allocator)
-		}
-	}
-
-	for name, i in token_modifier.names {
-		token_modifiers[i] = strings.to_lower(name, context.temp_allocator)
-	}
-
 	response := make_response_message(
 		params = ResponseInitializeParams {
 			capabilities = ServerCapabilities {
@@ -839,8 +818,8 @@ request_initialize :: proc(
 					range = config.enable_semantic_tokens,
 					full = config.enable_semantic_tokens,
 					legend = SemanticTokensLegend {
-						tokenTypes = token_types,
-						tokenModifiers = token_modifiers,
+						tokenTypes = semantic_token_type_names,
+						tokenModifiers = semantic_token_modifier_names,
 					},
 				},
 				inlayHintProvider = config.enable_inlay_hints,
@@ -1258,7 +1237,7 @@ notification_did_save :: proc(
 		log.errorf("failed to collect symbols on save %v", ret)
 	}
 
-	check(config.profile.checker_path[:], writer, config)
+	check(config.profile.checker_path[:], corrected_uri, writer, config)
 
 	return .None
 }
