@@ -2,6 +2,10 @@
 
 Language server for Odin. This project is still in early development.
 
+Note: This project is made to be up to date with the master branch of Odin.
+
+
+
 ## Table Of Contents
 
 -   [Installation](#installation)
@@ -23,9 +27,13 @@ cd ols
 
 # for windows
 ./build.bat
+# To install the odinfmt formatter
+./odinfmt.bat
 
 # for linux and macos
 ./build.sh
+# To install the odinfmt formatter
+./odinfmt.sh
 ```
 
 ### Configuration
@@ -80,6 +88,10 @@ Options:
 
 `enable_checker_only_saved`: Turns on only calling the checker on the package being saved. 
 
+`enable_references`: Turns on finding references for a symbol.  (Experimental)
+
+`enable_rename`: Turns on renaming a symbol. (Experimental)
+
 `odin_command`: Allows you to specify your Odin location, instead of just relying on the environment path.
 
 `checker_args`: Pass custom arguments to `odin check`.
@@ -125,8 +137,10 @@ Support Language server features:
 
 -   Completion
 -   Go to definition
--   Semantic tokens(really unstable and unfinished)
+-   Semantic tokens
 -   Document symbols
+-   Rename
+-   References
 -   Signature help
 -   Hover
 
@@ -142,7 +156,7 @@ Install the package https://github.com/sublimelsp/LSP
 
 Configuration of the LSP:
 
-```
+```json
 {
 	"clients": {
 		"odin": {
@@ -175,15 +189,15 @@ Install [Coc](https://github.com/neoclide/coc.nvim).
 
 Configuration of the LSP:
 
-```
+```json
 {
-  "languageserver": {
-	"odin": {
-	  "command": "ols",
-	  "filetypes": ["odin"],
-	  "rootPatterns": ["ols.json"]
+	"languageserver": {
+		"odin": {
+			"command": "ols",
+			"filetypes": ["odin"],
+			"rootPatterns": ["ols.json"]
+		}
 	}
-  }
 }
 ```
 
@@ -203,21 +217,38 @@ lspconfig.ols.setup({})
 
 ### Emacs
 
-```
-;; With odin-mode (https://github.com/mattt-b/odin-mode) and lsp-mode already added to your init.el of course!.
-(setq-default lsp-auto-guess-root t) ;; if you work with Projectile/project.el this will help find the ols.json file.
-(defvar lsp-language-id-configuration '((odin-mode . "odin")))
-(lsp-register-client
- (make-lsp-client :new-connection (lsp-stdio-connection "/path/to/ols/executable")
-				  :major-modes '(odin-mode)
-				  :server-id 'ols
-				  :multi-root t)) ;; This is just so lsp-mode sends the "workspaceFolders" param to the server.
+```elisp
+;; Enable odin-mode and configure OLS as the language server
+(use-package! odin-mode
+  :mode ("\\.odin\\'" . odin-mode)
+  :hook (odin-mode . lsp))
+
+;; Set up OLS as the language server for Odin, ensuring lsp-mode is loaded first
+(with-eval-after-load 'lsp-mode
+  (setq-default lsp-auto-guess-root t) ;; Helps find the ols.json file with Projectile or project.el
+  (setq lsp-language-id-configuration (cons '(odin-mode . "odin") lsp-language-id-configuration))
+
+  (lsp-register-client
+   (make-lsp-client :new-connection (lsp-stdio-connection "/path/to/ols/executable") ;; Adjust the path here
+                    :major-modes '(odin-mode)
+                    :server-id 'ols
+                    :multi-root t))) ;; Ensures lsp-mode sends "workspaceFolders" to the server
+
 (add-hook 'odin-mode-hook #'lsp)
 ```
 
 ### Helix
-Guide for installing helix with ols:
-https://github.com/joaocarvalhoopen/Helix_editor_for_the_Odin_programming_Language
+
+Helix supports Odin and OLS by default. It is already enabled in the [default languages.toml](https://github.com/helix-editor/helix/blob/master/languages.toml). 
+
+If `ols` or `odinfmt` are not on your PATH environment variable, you can enable them like this:
+```toml
+# Optional. The default configration requires OLS in PATH env. variable. If not,
+# you can set path to the executable like so:
+# [language-server.ols]
+# command = "path/to/executable"
+```
+
 ### Micro
 
 Install the [LSP plugin](https://github.com/AndCake/micro-plugin-lsp)
@@ -229,3 +260,55 @@ Configure the plugin in micro's settings.json:
 	"lsp.server": "c=clangd,go=gopls,odin=ols"
 }
 ```
+### Kate
+
+First, make sure you have the LSP plugin enabled. Then, you can find LSP settings for Kate in Settings -> Configure Kate -> LSP Client -> User Server Settings.
+
+You may have to set the folders for your Odin home path directly, like in the following example:
+```json
+{
+    "servers": {
+        "odin": {
+            "command": [
+                "ols"
+            ],
+            "filetypes": [
+                "odin"
+            ],
+            "url": "https://github.com/DanielGavin/ols",
+            "root": "%{Project:NativePath}",
+            "highlightingModeRegex": "^Odin$",
+            "initializationOptions": {
+                "collections": [
+                    {
+                        "name": "core",
+                        "path": "/path/to/Odin/core"
+                    },
+                    {
+                        "name": "vendor",
+                        "path": "/path/to/Odin/vendor"
+                    },
+                    {
+                        "name": "shared",
+                        "path": "/path/to/Odin/shared"
+                    },
+                    {
+                        "name": "src", // If your project has src-collection in root folder, 
+                        "path": "src"  // this will add it as a collection
+                    },
+                    {
+                        "name": "collection_a",
+                        "path": "/path/to/collection_a"
+                    }
+                ],
+                "odin_command": "path/to/Odin",
+                "verbose": true,
+                "enable_document_symbols": true,
+                "enable_hover": true
+            }
+        }
+    }
+}
+```
+Kate can infer inlay hints on its own when enabled in LSP settings, so enabling it separately in the server config
+can cause some weird behavior.

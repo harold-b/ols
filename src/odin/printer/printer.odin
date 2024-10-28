@@ -30,6 +30,7 @@ Printer :: struct {
 	group_modes:          map[string]Document_Group_Mode,
 	force_statement_fit:  bool,
 	src:                  string,
+	errored_out:          bool,
 }
 
 Disabled_Info :: struct {
@@ -40,16 +41,17 @@ Disabled_Info :: struct {
 }
 
 Config :: struct {
-	character_width: int,
-	spaces:          int, //Spaces per indentation
-	newline_limit:   int, //The limit of newlines between statements and declarations.
-	tabs:            bool, //Enable or disable tabs
-	tabs_width:      int,
-	convert_do:      bool, //Convert all do statements to brace blocks
-	brace_style:     Brace_Style,
-	indent_cases:    bool,
-	newline_style:   Newline_Style,
-	sort_imports:    bool,
+	character_width:         int,
+	spaces:                  int, //Spaces per indentation
+	newline_limit:           int, //The limit of newlines between statements and declarations.
+	tabs:                    bool, //Enable or disable tabs
+	tabs_width:              int,
+	convert_do:              bool, //Convert all do statements to brace blocks
+	brace_style:             Brace_Style,
+	indent_cases:            bool,
+	newline_style:           Newline_Style,
+	sort_imports:            bool,
+	inline_single_stmt_case: bool,
 }
 
 Brace_Style :: enum {
@@ -115,10 +117,7 @@ when ODIN_OS == .Windows {
 	}
 }
 
-make_printer :: proc(
-	config: Config,
-	allocator := context.allocator,
-) -> Printer {
+make_printer :: proc(config: Config, allocator := context.allocator) -> Printer {
 	return {config = config, allocator = allocator}
 }
 
@@ -131,19 +130,18 @@ build_disabled_lines_info :: proc(p: ^Printer) {
 
 	for group in p.comments {
 		for comment in group.list {
-			comment_text, _ := strings.replace_all(
-				comment.text[:],
-				" ",
-				"",
-				context.temp_allocator,
-			)
 
-			if strings.contains(comment_text, "//odinfmt:disable") {
+			if !strings.starts_with(comment.text, "//") do continue
+			comment_text := strings.trim_left_space(comment.text[len("//"):])
+
+			if !strings.starts_with(comment_text, "odinfmt:") do continue
+			action := strings.trim_space(comment_text[len("odinfmt:"):])
+
+			if action == "disable" {
 				found_disable = true
 				empty = true
 				disable_position = comment.pos
-			} else if strings.contains(comment_text, "//odinfmt:enable") &&
-			   found_disable {
+			} else if found_disable && action == "enable" {
 				begin := disable_position.offset - (comment.pos.column - 1)
 				end := comment.pos.offset + len(comment.text)
 
@@ -154,9 +152,7 @@ build_disabled_lines_info :: proc(p: ^Printer) {
 					empty      = empty,
 				}
 
-				for line := disable_position.line;
-				    line <= comment.pos.line;
-				    line += 1 {
+				for line in disable_position.line ..= comment.pos.line {
 					p.disabled_lines[line] = disabled_info
 				}
 
@@ -168,11 +164,7 @@ build_disabled_lines_info :: proc(p: ^Printer) {
 }
 
 @(private)
-set_comment_option :: proc(
-	p: ^Printer,
-	line: int,
-	option: Line_Suffix_Option,
-) {
+set_comment_option :: proc(p: ^Printer, line: int, option: Line_Suffix_Option) {
 	p.comments_option[line] = option
 }
 
@@ -221,11 +213,17 @@ print_file :: proc(p: ^Printer, file: ^ast.File) -> string {
 	p.source_position.line = 1
 	p.source_position.column = 1
 
-	p.document = move_line(p, file.pkg_token.pos)
-	p.document = cons(
-		p.document,
-		cons_with_nopl(text(file.pkg_token.text), text(file.pkg_name)),
-	)
+	p.document = empty()
+
+	for tag in file.tags {
+		p.document = cons(p.document, text(strings.trim(tag.text, "\r\n")), newline(1))
+		pos := tag.pos
+		pos.line += 1
+		set_source_position(p, pos)
+	}
+
+	p.document = cons(p.document, move_line(p, file.pkg_token.pos))
+	p.document = cons(p.document, cons_with_nopl(text(file.pkg_token.text), text(file.pkg_name)))
 
 	// Keep track of the first import in a row, to sort them later.
 	import_group_start: Maybe(int)
@@ -233,8 +231,7 @@ print_file :: proc(p: ^Printer, file: ^ast.File) -> string {
 	for decl, i in file.decls {
 		decl := cast(^ast.Decl)decl
 
-		if imp, is_import := decl.derived.(^ast.Import_Decl);
-		   p.config.sort_imports && is_import {
+		if imp, is_import := decl.derived.(^ast.Import_Decl); p.config.sort_imports && is_import {
 			// First import in this group.
 			if import_group_start == nil {
 				import_group_start = i
@@ -258,6 +255,15 @@ print_file :: proc(p: ^Printer, file: ^ast.File) -> string {
 
 			p.document = cons(p.document, visit_decl(p, decl))
 		}
+	}
+
+	if p.errored_out {
+		return ""
+	}
+
+	// If the file ends with imports.
+	if import_group_start != nil {
+		print_sorted_imports(p, file.decls[import_group_start.?:])
 	}
 
 	if len(p.comments) > 0 {
@@ -284,15 +290,18 @@ print_sorted_imports :: proc(p: ^Printer, decls: []^ast.Stmt) {
 	start_line := decls[0].pos.line
 
 	slice.stable_sort_by(decls, proc(imp1, imp2: ^ast.Stmt) -> bool {
-		return(
-			imp1.derived.(^ast.Import_Decl).fullpath <
-			imp2.derived.(^ast.Import_Decl).fullpath \
-		)
+		return imp1.derived.(^ast.Import_Decl).fullpath < imp2.derived.(^ast.Import_Decl).fullpath
 	})
 
 	for decl, i in decls {
 		decl.pos.line = start_line + i
 		decl.end.line = start_line + i
+
+		imp := decl.derived.(^ast.Import_Decl)
+		for attr in imp.attributes {
+			attr.pos.line = start_line + i
+			attr.end.line = start_line + i
+		}
 
 		p.document = cons(p.document, visit_decl(p, cast(^ast.Decl)decl))
 	}

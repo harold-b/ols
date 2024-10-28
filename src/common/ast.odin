@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:odin/ast"
+import "core:odin/parser"
 import path "core:path/slashpath"
 import "core:strings"
 
@@ -69,24 +70,22 @@ keyword_map: map[string]bool = {
 }
 
 GlobalExpr :: struct {
-	name:            string,
-	name_expr:       ^ast.Expr,
-	expr:            ^ast.Expr,
-	mutable:         bool,
-	docs:            ^ast.Comment_Group,
-	attributes:      []^ast.Attribute,
-	deprecated:      bool,
-	file_private:    bool,
-	package_private: bool,
-	builtin:         bool,
+	name:       string,
+	name_expr:  ^ast.Expr,
+	expr:       ^ast.Expr,
+	mutable:    bool,
+	docs:       ^ast.Comment_Group,
+	attributes: []^ast.Attribute,
+	deprecated: bool,
+	private:    parser.Private_Flag,
+	builtin:    bool,
 }
 
 get_attribute_objc_type :: proc(attributes: []^ast.Attribute) -> ^ast.Expr {
 	for attribute in attributes {
 		for elem in attribute.elems {
 			if assign, ok := elem.derived.(^ast.Field_Value); ok {
-				if ident, ok := assign.field.derived.(^ast.Ident);
-				   ok && ident.name == "objc_type" {
+				if ident, ok := assign.field.derived.(^ast.Ident); ok && ident.name == "objc_type" {
 					return assign.value
 				}
 			}
@@ -96,19 +95,12 @@ get_attribute_objc_type :: proc(attributes: []^ast.Attribute) -> ^ast.Expr {
 	return nil
 }
 
-get_attribute_objc_name :: proc(
-	attributes: []^ast.Attribute,
-) -> (
-	string,
-	bool,
-) {
+get_attribute_objc_name :: proc(attributes: []^ast.Attribute) -> (string, bool) {
 	for attribute in attributes {
 		for elem in attribute.elems {
 			if assign, ok := elem.derived.(^ast.Field_Value); ok {
-				if ident, ok := assign.field.derived.(^ast.Ident);
-				   ok && ident.name == "objc_name" {
-					if lit, ok := assign.value.derived.(^ast.Basic_Lit);
-					   ok && len(lit.tok.text) > 2 {
+				if ident, ok := assign.field.derived.(^ast.Ident); ok && ident.name == "objc_name" {
+					if lit, ok := assign.value.derived.(^ast.Basic_Lit); ok && len(lit.tok.text) > 2 {
 						return lit.tok.text[1:len(lit.tok.text) - 1], true
 					}
 				}
@@ -120,19 +112,12 @@ get_attribute_objc_name :: proc(
 	return "", false
 }
 
-get_attribute_objc_class_name :: proc(
-	attributes: []^ast.Attribute,
-) -> (
-	string,
-	bool,
-) {
+get_attribute_objc_class_name :: proc(attributes: []^ast.Attribute) -> (string, bool) {
 	for attribute in attributes {
 		for elem in attribute.elems {
 			if assign, ok := elem.derived.(^ast.Field_Value); ok {
-				if ident, ok := assign.field.derived.(^ast.Ident);
-				   ok && ident.name == "objc_class" {
-					if lit, ok := assign.value.derived.(^ast.Basic_Lit);
-					   ok && len(lit.tok.text) > 2 {
+				if ident, ok := assign.field.derived.(^ast.Ident); ok && ident.name == "objc_class" {
+					if lit, ok := assign.value.derived.(^ast.Basic_Lit); ok && len(lit.tok.text) > 2 {
 						return lit.tok.text[1:len(lit.tok.text) - 1], true
 					}
 				}
@@ -145,16 +130,12 @@ get_attribute_objc_class_name :: proc(
 }
 
 
-get_attribute_objc_is_class_method :: proc(
-	attributes: []^ast.Attribute,
-) -> bool {
+get_attribute_objc_is_class_method :: proc(attributes: []^ast.Attribute) -> bool {
 	for attribute in attributes {
 		for elem in attribute.elems {
 			if assign, ok := elem.derived.(^ast.Field_Value); ok {
-				if ident, ok := assign.field.derived.(^ast.Ident);
-				   ok && ident.name == "objc_is_class_method" {
-					if field_value, ok := assign.value.derived.(^ast.Ident);
-					   ok && field_value.name == "true" {
+				if ident, ok := assign.field.derived.(^ast.Ident); ok && ident.name == "objc_is_class_method" {
+					if field_value, ok := assign.value.derived.(^ast.Ident); ok && field_value.name == "true" {
 						return true
 					}
 				}
@@ -163,6 +144,31 @@ get_attribute_objc_is_class_method :: proc(
 		}
 	}
 	return false
+}
+
+unwrap_comp_literal :: proc(expr: ^ast.Expr) -> (^ast.Comp_Lit, int, bool) {
+	n := 0
+	expr := expr
+	for expr != nil {
+		if unary, ok := expr.derived.(^ast.Unary_Expr); ok {
+			if unary.op.kind == .And {
+				expr = unary.expr
+				n += 1
+			}
+		} else {
+			break
+		}
+	}
+
+	if expr != nil {
+		if comp_literal, ok := expr.derived.(^ast.Comp_Lit); ok {
+			return comp_literal, n, ok
+		}
+
+		return {}, n, false
+	}
+
+	return {}, n, false
 }
 
 unwrap_pointer_ident :: proc(expr: ^ast.Expr) -> (ast.Ident, int, bool) {
@@ -207,6 +213,53 @@ unwrap_pointer_expr :: proc(expr: ^ast.Expr) -> (^ast.Expr, int, bool) {
 	return expr, n, true
 }
 
+array_is_soa :: proc(array: ast.Array_Type) -> bool {
+	if array.tag != nil {
+		if basic, ok := array.tag.derived.(^ast.Basic_Directive); ok && basic.name == "soa" {
+			return true
+		}
+	}
+	return false
+}
+
+dynamic_array_is_soa :: proc(array: ast.Dynamic_Array_Type) -> bool {
+	if array.tag != nil {
+		if basic, ok := array.tag.derived.(^ast.Basic_Directive); ok && basic.name == "soa" {
+			return true
+		}
+	}
+	return false
+}
+
+expr_contains_poly :: proc(expr: ^ast.Expr) -> bool {
+	if expr == nil {
+		return false
+	}
+
+	visit :: proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+		if node == nil {
+			return nil
+		}
+		if _, ok := node.derived.(^ast.Poly_Type); ok {
+			b := cast(^bool)visitor.data
+			b^ = true
+			return nil
+		}
+		return visitor
+	}
+
+	found := false
+
+	visitor := ast.Visitor {
+		visit = visit,
+		data  = &found,
+	}
+
+	ast.walk(&visitor, expr)
+
+	return found
+}
+
 is_expr_basic_lit :: proc(expr: ^ast.Expr) -> bool {
 	_, ok := expr.derived.(^ast.Basic_Lit)
 	return ok
@@ -215,119 +268,89 @@ is_expr_basic_lit :: proc(expr: ^ast.Expr) -> bool {
 collect_value_decl :: proc(
 	exprs: ^[dynamic]GlobalExpr,
 	file: ast.File,
+	file_tags: parser.File_Tags,
 	stmt: ^ast.Node,
 	skip_private: bool,
 ) {
-	if value_decl, ok := stmt.derived.(^ast.Value_Decl); ok {
-		is_deprecated := false
-		is_private_file := false
-		is_private_pkg := false
-		is_builtin := false
+	value_decl, is_value_decl := stmt.derived.(^ast.Value_Decl)
 
-		for attribute in value_decl.attributes {
-			for elem in attribute.elems {
-				if value, ok := elem.derived.(^ast.Field_Value); ok {
-					if ident, ok := value.field.derived.(^ast.Ident); ok {
-						switch ident.name {
-						case "private":
-							if val, ok := value.value.derived.(^ast.Basic_Lit);
-							   ok {
-								switch val.tok.text {
-								case "\"file\"":
-									is_private_file = true
-								case "package":
-									is_private_pkg = true
-								}
-							} else {
-								is_private_pkg = true
-							}
-						}
-					}
-				} else if ident, ok := elem.derived.(^ast.Ident); ok {
-					switch ident.name {
-					case "deprecated":
-						is_deprecated = true
-					case "builtin":
-						is_builtin = true
-					case "private":
-						is_private_pkg = true
-					}
-				}
+	if !is_value_decl {
+		return
+	}
+
+	global_expr := GlobalExpr {
+		mutable    = value_decl.is_mutable,
+		docs       = value_decl.docs,
+		attributes = value_decl.attributes[:],
+		private    = file_tags.private,
+	}
+
+	for attribute in value_decl.attributes {
+		for elem in attribute.elems {
+			ident: ^ast.Ident
+			value: ast.Any_Node
+
+			#partial switch v in elem.derived {
+			case ^ast.Field_Value:
+				ident = v.field.derived.(^ast.Ident) or_continue
+				value = v.value.derived
+			case ^ast.Ident:
+				ident = v
+			case:
+				continue
 			}
-		}
 
-		if is_private_file && skip_private {
-			return
-		}
-
-		// If a private status is not explicitly set with an attribute above the declaration
-		// check the file comment.
-		if !is_private_file && !is_private_pkg && file.docs != nil {
-			for comment in file.docs.list {
-				txt := comment.text
-				if strings.has_prefix(txt, "//+private") {
-					txt = strings.trim_prefix(txt, "//+private")
-					is_private_pkg = true
-
-					if strings.has_prefix(txt, " ") {
-						txt = strings.trim_space(txt)
-						if txt == "file" {
-							is_private_file = true
-						}
+			switch ident.name {
+			case "deprecated":
+				global_expr.deprecated = true
+			case "builtin":
+				global_expr.builtin = true
+			case "private":
+				if val, ok := value.(^ast.Basic_Lit); ok {
+					switch val.tok.text {
+					case "\"file\"":
+						global_expr.private = .File
+					case "\"package\"":
+						global_expr.private = .Package
 					}
-				}
-			}
-		}
-
-		for name, i in value_decl.names {
-			str := get_ast_node_string(name, file.src)
-
-			if value_decl.type != nil {
-				append(
-					exprs,
-					GlobalExpr {
-						name = str,
-						name_expr = name,
-						expr = value_decl.type,
-						mutable = value_decl.is_mutable,
-						docs = value_decl.docs,
-						attributes = value_decl.attributes[:],
-						deprecated = is_deprecated,
-						builtin = is_builtin,
-						package_private = is_private_pkg,
-					},
-				)
-			} else {
-				if len(value_decl.values) > i {
-					append(
-						exprs,
-						GlobalExpr {
-							name = str,
-							name_expr = name,
-							expr = value_decl.values[i],
-							mutable = value_decl.is_mutable,
-							docs = value_decl.docs,
-							attributes = value_decl.attributes[:],
-							deprecated = is_deprecated,
-							builtin = is_builtin,
-							package_private = is_private_pkg,
-						},
-					)
+				} else {
+					global_expr.private = .Package
 				}
 			}
 		}
 	}
+
+	if file_tags.ignore {
+		global_expr.private = .File
+	}
+
+	if skip_private && global_expr.private == .File {
+		return
+	}
+
+	for name, i in value_decl.names {
+		global_expr.name = get_ast_node_string(name, file.src)
+		global_expr.name_expr = name
+
+		if value_decl.type != nil {
+			global_expr.expr = value_decl.type
+			append(exprs, global_expr)
+		} else if len(value_decl.values) > i {
+			global_expr.expr = value_decl.values[i]
+			append(exprs, global_expr)
+		}
+	}
 }
 
-collect_globals :: proc(
-	file: ast.File,
-	skip_private := false,
-) -> []GlobalExpr {
+collect_globals :: proc(file: ast.File, skip_private := false) -> []GlobalExpr {
 	exprs := make([dynamic]GlobalExpr, context.temp_allocator)
+	defer shrink(&exprs)
+
+	file_tags := parser.parse_file_tags(file, context.temp_allocator)
 
 	for decl in file.decls {
 		if value_decl, ok := decl.derived.(^ast.Value_Decl); ok {
-			collect_value_decl(&exprs, file, decl, skip_private)
+			collect_value_decl(&exprs, file, file_tags, decl, skip_private)
 		} else if when_decl, ok := decl.derived.(^ast.When_Stmt); ok {
 			if when_decl.cond == nil {
 				continue
@@ -347,15 +370,13 @@ collect_globals :: proc(
 
 				if t, ok := binary.left.derived.(^ast.Ident); ok {
 					ident = cast(^ast.Ident)binary.left
-				} else if t, ok := binary.left.derived.(^ast.Implicit_Selector_Expr);
-				   ok {
+				} else if t, ok := binary.left.derived.(^ast.Implicit_Selector_Expr); ok {
 					implicit = cast(^ast.Implicit_Selector_Expr)binary.left
 				}
 
 				if t, ok := binary.right.derived.(^ast.Ident); ok {
 					ident = cast(^ast.Ident)binary.right
-				} else if t, ok := binary.right.derived.(^ast.Implicit_Selector_Expr);
-				   ok {
+				} else if t, ok := binary.right.derived.(^ast.Implicit_Selector_Expr); ok {
 					implicit = cast(^ast.Implicit_Selector_Expr)binary.right
 				}
 
@@ -364,41 +385,24 @@ collect_globals :: proc(
 
 					if binary.op.text == "==" {
 						allowed =
-							ident.name == "ODIN_OS" &&
-								implicit.field.name == fmt.tprint(ODIN_OS) ||
-							ident.name == "ODIN_ARCH" &&
-								implicit.field.name == fmt.tprint(ODIN_ARCH)
+							ident.name == "ODIN_OS" && implicit.field.name == fmt.tprint(ODIN_OS) ||
+							ident.name == "ODIN_ARCH" && implicit.field.name == fmt.tprint(ODIN_ARCH)
 					} else if binary.op.text == "!=" {
 						allowed =
-							ident.name == "ODIN_OS" &&
-								implicit.field.name != fmt.tprint(ODIN_OS) ||
-							ident.name == "ODIN_ARCH" &&
-								implicit.field.name != fmt.tprint(ODIN_ARCH)
+							ident.name == "ODIN_OS" && implicit.field.name != fmt.tprint(ODIN_OS) ||
+							ident.name == "ODIN_ARCH" && implicit.field.name != fmt.tprint(ODIN_ARCH)
 					}
 
 					if allowed {
-						if block, ok := when_decl.body.derived.(^ast.Block_Stmt);
-						   ok {
+						if block, ok := when_decl.body.derived.(^ast.Block_Stmt); ok {
 							for stmt in block.stmts {
-								collect_value_decl(
-									&exprs,
-									file,
-									stmt,
-									skip_private,
-								)
+								collect_value_decl(&exprs, file, file_tags, stmt, skip_private)
 							}
 						}
-					} else if ident.name != "ODIN_OS" &&
-					   ident.name != "ODIN_ARCH" {
-						if block, ok := when_decl.body.derived.(^ast.Block_Stmt);
-						   ok {
+					} else if ident.name != "ODIN_OS" && ident.name != "ODIN_ARCH" {
+						if block, ok := when_decl.body.derived.(^ast.Block_Stmt); ok {
 							for stmt in block.stmts {
-								collect_value_decl(
-									&exprs,
-									file,
-									stmt,
-									skip_private,
-								)
+								collect_value_decl(&exprs, file, file_tags, stmt, skip_private)
 							}
 						}
 					}
@@ -406,19 +410,18 @@ collect_globals :: proc(
 			} else {
 				if block, ok := when_decl.body.derived.(^ast.Block_Stmt); ok {
 					for stmt in block.stmts {
-						collect_value_decl(&exprs, file, stmt, skip_private)
+						collect_value_decl(&exprs, file, file_tags, stmt, skip_private)
 					}
 				}
 			}
-		} else if foreign_decl, ok := decl.derived.(^ast.Foreign_Block_Decl);
-		   ok {
+		} else if foreign_decl, ok := decl.derived.(^ast.Foreign_Block_Decl); ok {
 			if foreign_decl.body == nil {
 				continue
 			}
 
 			if block, ok := foreign_decl.body.derived.(^ast.Block_Stmt); ok {
 				for stmt in block.stmts {
-					collect_value_decl(&exprs, file, stmt, skip_private)
+					collect_value_decl(&exprs, file, file_tags, stmt, skip_private)
 				}
 			}
 		}
@@ -431,39 +434,18 @@ get_ast_node_string :: proc(node: ^ast.Node, src: string) -> string {
 	return string(src[node.pos.offset:node.end.offset])
 }
 
-get_doc :: proc(
-	comment: ^ast.Comment_Group,
-	allocator: mem.Allocator,
-) -> string {
+get_doc :: proc(comment: ^ast.Comment_Group, allocator: mem.Allocator) -> string {
 	if comment != nil {
 		tmp: string
 
 		for doc in comment.list {
-			tmp = strings.concatenate(
-				{tmp, "\n", doc.text},
-				context.temp_allocator,
-			)
+			tmp = strings.concatenate({tmp, "\n", doc.text}, context.temp_allocator)
 		}
 
 		if tmp != "" {
-			no_lines, _ := strings.replace_all(
-				tmp,
-				"//",
-				"",
-				context.temp_allocator,
-			)
-			no_begin_comments, _ := strings.replace_all(
-				no_lines,
-				"/*",
-				"",
-				context.temp_allocator,
-			)
-			no_end_comments, _ := strings.replace_all(
-				no_begin_comments,
-				"*/",
-				"",
-				context.temp_allocator,
-			)
+			no_lines, _ := strings.replace_all(tmp, "//", "", context.temp_allocator)
+			no_begin_comments, _ := strings.replace_all(no_lines, "/*", "", context.temp_allocator)
+			no_end_comments, _ := strings.replace_all(no_begin_comments, "*/", "", context.temp_allocator)
 			return strings.clone(no_end_comments, allocator)
 		}
 	}
@@ -497,10 +479,7 @@ free_ast_array :: proc(array: $A/[]^$T, allocator: mem.Allocator) {
 	delete(array, allocator)
 }
 
-free_ast_dynamic_array :: proc(
-	array: $A/[dynamic]^$T,
-	allocator: mem.Allocator,
-) {
+free_ast_dynamic_array :: proc(array: $A/[dynamic]^$T, allocator: mem.Allocator) {
 	for elem, i in array {
 		free_ast(elem, allocator)
 	}
@@ -712,6 +691,9 @@ free_ast_node :: proc(node: ^ast.Node, allocator: mem.Allocator) {
 		free_ast(n.name, allocator)
 		free_ast(n.type, allocator)
 		free_ast(n.bit_size, allocator)
+	case ^ast.Or_Else_Expr:
+		free_ast(n.x, allocator)
+		free_ast(n.y, allocator)
 	case:
 		panic(fmt.aprintf("free Unhandled node kind: %v", node.derived))
 	}
@@ -962,31 +944,19 @@ build_string :: proc {
 	build_string_node,
 }
 
-build_string_dynamic_array :: proc(
-	array: $A/[]^$T,
-	builder: ^strings.Builder,
-	remove_pointers: bool,
-) {
+build_string_dynamic_array :: proc(array: $A/[]^$T, builder: ^strings.Builder, remove_pointers: bool) {
 	for elem, i in array {
 		build_string(elem, builder, remove_pointers)
 	}
 }
 
-build_string_ast_array :: proc(
-	array: $A/[dynamic]^$T,
-	builder: ^strings.Builder,
-	remove_pointers: bool,
-) {
+build_string_ast_array :: proc(array: $A/[dynamic]^$T, builder: ^strings.Builder, remove_pointers: bool) {
 	for elem, i in array {
 		build_string(elem, builder, remove_pointers)
 	}
 }
 
-build_string_node :: proc(
-	node: ^ast.Node,
-	builder: ^strings.Builder,
-	remove_pointers: bool,
-) {
+build_string_node :: proc(node: ^ast.Node, builder: ^strings.Builder, remove_pointers: bool) {
 	using ast
 
 	if node == nil {
@@ -997,10 +967,7 @@ build_string_node :: proc(
 	case ^Bad_Expr:
 	case ^Ident:
 		if strings.contains(n.name, "/") {
-			strings.write_string(
-				builder,
-				path.base(n.name, false, context.temp_allocator),
-			)
+			strings.write_string(builder, path.base(n.name, false, context.temp_allocator))
 		} else {
 			strings.write_string(builder, n.name)
 		}
@@ -1034,6 +1001,7 @@ build_string_node :: proc(
 	case ^Tag_Expr:
 		build_string(n.expr, builder, remove_pointers)
 	case ^Unary_Expr:
+		strings.write_string(builder, n.op.text)
 		build_string(n.expr, builder, remove_pointers)
 	case ^Binary_Expr:
 		build_string(n.left, builder, remove_pointers)
@@ -1189,11 +1157,7 @@ build_string_node :: proc(
 	}
 }
 
-repeat :: proc(
-	value: string,
-	count: int,
-	allocator := context.allocator,
-) -> string {
+repeat :: proc(value: string, count: int, allocator := context.allocator) -> string {
 	if count <= 0 {
 		return ""
 	}

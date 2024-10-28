@@ -15,7 +15,7 @@ import "core:unicode/utf8"
 
 import "src:common"
 
-SemanticTokenTypes :: enum u8 {
+SemanticTokenTypes :: enum u32 {
 	Namespace,
 	Type,
 	Enum,
@@ -62,12 +62,7 @@ SemanticTokenModifier :: enum u8 {
 	ReadOnly,
 }
 // Need to be in the same order as SemanticTokenModifier
-semantic_token_modifier_names: []string = {
-	"declaration",
-	"definition",
-	"deprecated",
-	"readonly",
-}
+semantic_token_modifier_names: []string = {"declaration", "definition", "deprecated", "readonly"}
 SemanticTokenModifiers :: bit_set[SemanticTokenModifier;u32]
 
 SemanticTokensClientCapabilities :: struct {
@@ -101,22 +96,38 @@ SemanticTokensRangeParams :: struct {
 	range:        common.Range,
 }
 
-SemanticTokens :: struct {
+SemanticToken :: struct {
+	// token line number, relative to the previous token
+	delta_line: u32,
+	// token start character, relative to the previous token
+	// (relative to 0 or the previous token’s start if they are on the same line)
+	delta_char: u32,
+	len:        u32,
+	type:       SemanticTokenTypes,
+	modifiers:  SemanticTokenModifiers,
+}
+#assert(size_of(SemanticToken) == 5 * size_of(u32))
+
+SemanticTokensResponseParams :: struct {
 	data: []u32,
 }
 
 SemanticTokenBuilder :: struct {
 	current_start: int,
-	tokens:        [dynamic]u32,
+	tokens:        [dynamic]SemanticToken,
 	symbols:       map[uintptr]SymbolAndNode,
 	src:           string,
+}
+
+semantic_tokens_to_response_params :: proc(tokens: []SemanticToken) -> SemanticTokensResponseParams {
+	return {data = (cast([^]u32)raw_data(tokens))[:len(tokens) * 5]}
 }
 
 get_semantic_tokens :: proc(
 	document: ^Document,
 	range: common.Range,
 	symbols: map[uintptr]SymbolAndNode,
-) -> SemanticTokens {
+) -> []SemanticToken {
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,
@@ -127,19 +138,18 @@ get_semantic_tokens :: proc(
 	ast_context.current_package = ast_context.document_package
 
 	builder: SemanticTokenBuilder = {
-		tokens  = make([dynamic]u32, 10000, context.temp_allocator),
+		tokens  = make([dynamic]SemanticToken, 0, 2000, context.temp_allocator),
 		symbols = symbols,
 		src     = ast_context.file.src,
 	}
 
 	for decl in document.ast.decls {
-		if range.start.line <= decl.pos.line &&
-		   decl.end.line <= range.end.line {
+		if range.start.line <= decl.pos.line && decl.end.line <= range.end.line {
 			visit_node(decl, &builder)
 		}
 	}
 
-	return {data = builder.tokens[:]}
+	return builder.tokens[:]
 }
 
 write_semantic_at_pos :: proc(
@@ -149,18 +159,16 @@ write_semantic_at_pos :: proc(
 	type: SemanticTokenTypes,
 	modifiers: SemanticTokenModifiers = {},
 ) {
-	position := common.get_relative_token_position(
-		pos,
-		transmute([]u8)builder.src,
-		builder.current_start,
-	)
+	position := common.get_relative_token_position(pos, transmute([]u8)builder.src, builder.current_start)
 	append(
 		&builder.tokens,
-		cast(u32)position.line,
-		cast(u32)position.character,
-		cast(u32)len,
-		cast(u32)type,
-		transmute(u32)modifiers,
+		SemanticToken {
+			delta_line = cast(u32)position.line,
+			delta_char = cast(u32)position.character,
+			len = cast(u32)len,
+			type = type,
+			modifiers = modifiers,
+		},
 	)
 	builder.current_start = pos
 }
@@ -187,13 +195,7 @@ write_semantic_token :: proc(
 	type: SemanticTokenTypes,
 	modifiers: SemanticTokenModifiers = {},
 ) {
-	write_semantic_at_pos(
-		builder,
-		token.pos.offset,
-		len(token.text),
-		type,
-		modifiers,
-	)
+	write_semantic_at_pos(builder, token.pos.offset, len(token.text), type, modifiers)
 }
 
 visit_nodes :: proc(array: []$T/^ast.Node, builder: ^SemanticTokenBuilder) {
@@ -349,7 +351,7 @@ visit_node :: proc(node: ^ast.Node, builder: ^SemanticTokenBuilder) {
 	case ^Or_Else_Expr:
 		visit_node(n.x, builder)
 		visit_node(n.y, builder)
-	case ^ast.Or_Branch_Expr:
+	case ^Or_Branch_Expr:
 		visit_node(n.expr, builder)
 		visit_node(n.label, builder)
 	case ^Ternary_If_Expr:
@@ -363,8 +365,8 @@ visit_node :: proc(node: ^ast.Node, builder: ^SemanticTokenBuilder) {
 			visit_node(n.y, builder)
 		}
 	case ^Ternary_When_Expr:
-		visit_node(n.cond, builder)
 		visit_node(n.x, builder)
+		visit_node(n.cond, builder)
 		visit_node(n.y, builder)
 	case ^Union_Type:
 		visit_nodes(n.variants, builder)
@@ -382,18 +384,16 @@ visit_node :: proc(node: ^ast.Node, builder: ^SemanticTokenBuilder) {
 		}
 	case ^Bit_Field_Type:
 		visit_bit_field_fields(n^, builder)
+	case ^ast.Helper_Type:
+		visit_node(n.type, builder)
 	case:
 	}
 }
 
-visit_value_decl :: proc(
-	value_decl: ast.Value_Decl,
-	builder: ^SemanticTokenBuilder,
-) {
+visit_value_decl :: proc(value_decl: ast.Value_Decl, builder: ^SemanticTokenBuilder) {
 	using ast
 
-	modifiers: SemanticTokenModifiers =
-		value_decl.is_mutable ? {} : {.ReadOnly}
+	modifiers: SemanticTokenModifiers = value_decl.is_mutable ? {} : {.ReadOnly}
 
 	for name in value_decl.names {
 		ident := name.derived.(^Ident) or_continue
@@ -434,10 +434,7 @@ visit_proc_type :: proc(node: ^ast.Proc_Type, builder: ^SemanticTokenBuilder) {
 	}
 }
 
-visit_enum_fields :: proc(
-	node: ast.Enum_Type,
-	builder: ^SemanticTokenBuilder,
-) {
+visit_enum_fields :: proc(node: ast.Enum_Type, builder: ^SemanticTokenBuilder) {
 	using ast
 
 	if node.fields == nil {
@@ -456,10 +453,7 @@ visit_enum_fields :: proc(
 	}
 }
 
-visit_struct_fields :: proc(
-	node: ast.Struct_Type,
-	builder: ^SemanticTokenBuilder,
-) {
+visit_struct_fields :: proc(node: ast.Struct_Type, builder: ^SemanticTokenBuilder) {
 	if node.fields == nil {
 		return
 	}
@@ -475,10 +469,7 @@ visit_struct_fields :: proc(
 	}
 }
 
-visit_bit_field_fields :: proc(
-	node: ast.Bit_Field_Type,
-	builder: ^SemanticTokenBuilder,
-) {
+visit_bit_field_fields :: proc(node: ast.Bit_Field_Type, builder: ^SemanticTokenBuilder) {
 	if node.fields == nil {
 		return
 	}
@@ -493,10 +484,7 @@ visit_bit_field_fields :: proc(
 	}
 }
 
-visit_import_decl :: proc(
-	decl: ^ast.Import_Decl,
-	builder: ^SemanticTokenBuilder,
-) {
+visit_import_decl :: proc(decl: ^ast.Import_Decl, builder: ^SemanticTokenBuilder) {
 	/*
 	hightlight the namespace in the import declaration
 	
@@ -519,9 +507,7 @@ visit_import_decl :: proc(
 
 		for {
 			if pos > 1 {
-				ch, w := utf8.decode_last_rune_in_string(
-					decl.relpath.text[:pos],
-				)
+				ch, w := utf8.decode_last_rune_in_string(decl.relpath.text[:pos])
 
 				switch ch {
 				case ':', '/': // break
@@ -534,12 +520,7 @@ visit_import_decl :: proc(
 			break
 		}
 
-		write_semantic_at_pos(
-			builder,
-			decl.relpath.pos.offset + pos,
-			end - pos,
-			.Namespace,
-		)
+		write_semantic_at_pos(builder, decl.relpath.pos.offset + pos, end - pos, .Namespace)
 	}
 }
 
@@ -562,49 +543,43 @@ visit_ident :: proc(
 		modifiers += {.ReadOnly}
 	}
 
-	if .Distinct in symbol.flags && symbol.type == .Constant {
-		write_semantic_node(builder, ident, .Type)
-		return
-	}
+	//log.errorf("%# \n", symbol)
 
+	/* variable idents */
 	#partial switch symbol.type {
-	case .Variable, .Constant:
+	case .Variable, .Constant, .Function:
 		#partial switch _ in symbol.value {
-		case SymbolProcedureValue:
+		case SymbolProcedureValue, SymbolProcedureGroupValue, SymbolAggregateValue:
 			write_semantic_node(builder, ident, .Function, modifiers)
 		case:
 			write_semantic_node(builder, ident, .Variable, modifiers)
 		}
-	case .Type_Function:
-		write_semantic_node(builder, ident, .Type, modifiers)
 	case .EnumMember:
 		write_semantic_node(builder, ident, .EnumMember, modifiers)
-	}
-
-	switch v in symbol.value {
-	case SymbolPackageValue:
-		write_semantic_node(builder, ident, .Namespace, modifiers)
-	case SymbolStructValue, SymbolBitFieldValue:
-		write_semantic_node(builder, ident, .Struct, modifiers)
-	case SymbolEnumValue, SymbolUnionValue:
-		write_semantic_node(builder, ident, .Enum, modifiers)
-	case SymbolProcedureValue, SymbolProcedureGroupValue, SymbolAggregateValue:
-		write_semantic_node(builder, ident, .Function, modifiers)
-	case SymbolMatrixValue,
-	     SymbolBitSetValue,
-	     SymbolDynamicArrayValue,
-	     SymbolFixedArrayValue,
-	     SymbolSliceValue,
-	     SymbolMapValue,
-	     SymbolMultiPointer,
-	     SymbolBasicValue:
-		write_semantic_node(builder, ident, .Type, modifiers)
-	case SymbolUntypedValue:
-	// handled by static syntax highlighting
-	case SymbolGenericValue:
-	// unused
 	case:
-	// log.errorf("Unexpected symbol value: %v", symbol.value);
-	// panic(fmt.tprintf("Unexpected symbol value: %v", symbol.value));
+		/* type idents */
+		switch v in symbol.value {
+		case SymbolPackageValue:
+			write_semantic_node(builder, ident, .Namespace, modifiers)
+		case SymbolStructValue, SymbolBitFieldValue:
+			write_semantic_node(builder, ident, .Struct, modifiers)
+		case SymbolEnumValue, SymbolUnionValue:
+			write_semantic_node(builder, ident, .Enum, modifiers)
+		case SymbolProcedureValue,
+		     SymbolMatrixValue,
+		     SymbolBitSetValue,
+		     SymbolDynamicArrayValue,
+		     SymbolFixedArrayValue,
+		     SymbolSliceValue,
+		     SymbolMapValue,
+		     SymbolMultiPointer,
+		     SymbolBasicValue:
+			write_semantic_node(builder, ident, .Type, modifiers)
+		case SymbolUntypedValue:
+		// handled by static syntax highlighting
+		case SymbolGenericValue, SymbolProcedureGroupValue, SymbolAggregateValue:
+		// unused
+		case:
+		}
 	}
 }

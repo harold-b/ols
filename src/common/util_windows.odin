@@ -1,9 +1,9 @@
 package common
 
-import "core:strings"
-import "core:mem"
 import "core:fmt"
 import "core:log"
+import "core:mem"
+import "core:strings"
 
 import win32 "core:sys/windows"
 
@@ -36,19 +36,16 @@ get_case_sensitive_path :: proc(
 	)
 
 	if (file == win32.INVALID_HANDLE) {
-		log.errorf("Failed on get_case_sensitive_path(%v) at %v", path, location)
-		log_last_error()
+		when !ODIN_TEST {
+			log.errorf("Failed on get_case_sensitive_path(%v) at %v", path, location)
+			log_last_error()
+		}
 		return path
 	}
 
 	buffer := make([]u16, 512, context.temp_allocator)
 
-	ret := win32.GetFinalPathNameByHandleW(
-		file,
-		&buffer[0],
-		cast(u32)len(buffer),
-		0,
-	)
+	ret := win32.GetFinalPathNameByHandleW(file, &buffer[0], cast(u32)len(buffer), 0)
 
 	res, _ := win32.utf16_to_utf8(buffer[4:], allocator)
 
@@ -79,14 +76,7 @@ log_last_error :: proc() {
 }
 
 
-run_executable :: proc(
-	command: string,
-	stdout: ^[]byte,
-) -> (
-	u32,
-	bool,
-	[]byte,
-) {
+run_executable :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) {
 	stdout_read: win32.HANDLE
 	stdout_write: win32.HANDLE
 
@@ -113,17 +103,17 @@ run_executable :: proc(
 	startup_info.dwFlags |= win32.STARTF_USESTDHANDLES
 
 	if !win32.CreateProcessW(
-		   nil,
-		   &win32.utf8_to_utf16(command)[0],
-		   nil,
-		   nil,
-		   true,
-		   0,
-		   nil,
-		   nil,
-		   &startup_info,
-		   &process_info,
-	   ) {
+		nil,
+		&win32.utf8_to_utf16(command)[0],
+		nil,
+		nil,
+		true,
+		0,
+		nil,
+		nil,
+		&startup_info,
+		&process_info,
+	) {
 		return 0, false, stdout[0:]
 	}
 
@@ -137,13 +127,7 @@ run_executable :: proc(
 	success: win32.BOOL = true
 
 	for success {
-		success = win32.ReadFile(
-			stdout_read,
-			&read_buffer[0],
-			len(read_buffer),
-			&read,
-			nil,
-		)
+		success = win32.ReadFile(stdout_read, &read_buffer[0], len(read_buffer), &read, nil)
 
 		if read > 0 && index + cast(int)read <= len(stdout) {
 			mem.copy(&stdout[index], &read_buffer[0], cast(int)read)

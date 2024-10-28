@@ -23,13 +23,14 @@ ResponseParams :: union {
 	CompletionList,
 	SignatureHelp,
 	[]DocumentSymbol,
-	SemanticTokens,
+	SemanticTokensResponseParams,
 	Hover,
 	[]TextEdit,
 	[]InlayHint,
 	[]DocumentLink,
 	[]WorkspaceSymbol,
 	WorkspaceEdit,
+	common.Range,
 }
 
 ResponseMessage :: struct {
@@ -102,11 +103,16 @@ ServerCapabilities :: struct {
 	hoverProvider:              bool,
 	documentFormattingProvider: bool,
 	inlayHintProvider:          bool,
-	renameProvider:             bool,
+	renameProvider:             RenameOptions,
 	referencesProvider:         bool,
 	workspaceSymbolProvider:    bool,
 	documentLinkProvider:       DocumentLinkOptions,
 }
+
+RenameOptions :: struct {
+	prepareProvider: bool,
+}
+
 
 CompletionOptions :: struct {
 	resolveProvider:   bool,
@@ -336,27 +342,30 @@ TextDocumentSyncOptions :: struct {
 }
 
 OlsConfig :: struct {
-	collections:               [dynamic]OlsConfigCollection,
-	thread_pool_count:         Maybe(int),
-	enable_semantic_tokens:    Maybe(bool),
-	enable_document_symbols:   Maybe(bool),
-	enable_format:             Maybe(bool),
-	enable_hover:              Maybe(bool),
-	enable_procedure_context:  Maybe(bool),
-	enable_snippets:           Maybe(bool),
-	enable_inlay_hints:        Maybe(bool),
-	enable_references:         Maybe(bool),
-	enable_fake_methods:       Maybe(bool),
-	enable_procedure_snippet:  Maybe(bool),
-	enable_checker_only_saved: Maybe(bool),
-	disable_parser_errors:     Maybe(bool),
-	verbose:                   Maybe(bool),
-	file_log:                  Maybe(bool),
-	odin_command:              string,
-	checker_args:              string,
-	checker_targets:           []string,
-	profiles:                  [dynamic]common.ConfigProfile,
-	profile:                   string,
+	collections:                       [dynamic]OlsConfigCollection,
+	thread_pool_count:                 Maybe(int),
+	enable_semantic_tokens:            Maybe(bool),
+	enable_document_symbols:           Maybe(bool),
+	enable_format:                     Maybe(bool),
+	enable_hover:                      Maybe(bool),
+	enable_procedure_context:          Maybe(bool),
+	enable_snippets:                   Maybe(bool),
+	enable_inlay_hints:                Maybe(bool),
+	enable_inlay_hints_params:         Maybe(bool),
+	enable_inlay_hints_default_params: Maybe(bool),
+	enable_references:                 Maybe(bool),
+	enable_rename:                     Maybe(bool),
+	enable_fake_methods:               Maybe(bool),
+	enable_procedure_snippet:          Maybe(bool),
+	enable_checker_only_saved:         Maybe(bool),
+	disable_parser_errors:             Maybe(bool),
+	verbose:                           Maybe(bool),
+	file_log:                          Maybe(bool),
+	odin_command:                      string,
+	checker_args:                      string,
+	checker_targets:                   []string,
+	profiles:                          [dynamic]common.ConfigProfile,
+	profile:                           string,
 }
 
 OlsConfigCollection :: struct {
@@ -468,6 +477,11 @@ RenameParams :: struct {
 	position:     common.Position,
 }
 
+PrepareRenameParams :: struct {
+	textDocument: TextDocumentIdentifier,
+	position:     common.Position,
+}
+
 ReferenceParams :: struct {
 	textDocument: TextDocumentIdentifier,
 	position:     common.Position,
@@ -484,7 +498,7 @@ TextDocumentEdit :: struct {
 }
 
 WorkspaceEdit :: struct {
-	documentChanges: []TextDocumentEdit,
+	changes: map[string][]TextEdit,
 }
 
 WorkspaceSymbolParams :: struct {

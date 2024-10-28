@@ -6,6 +6,7 @@ import "core:log"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
+import "core:path/slashpath"
 import "core:strings"
 
 foreign import libc "system:c"
@@ -32,15 +33,11 @@ lookup_in_path :: proc(name: string) -> (string, bool) {
 				return possibility, true
 			}
 		} else {
-			possibility := filepath.join(
-				elems = {directory, name},
-				allocator = context.temp_allocator,
-			)
+			possibility := filepath.join(elems = {directory, name}, allocator = context.temp_allocator)
 			possibility = resolve_home_dir(possibility, context.temp_allocator)
 			if os.exists(possibility) {
 				if info, err := os.stat(possibility, context.temp_allocator);
-				   err == os.ERROR_NONE &&
-				   (File_Mode_User_Executable & info.mode) != 0 {
+				   err == os.ERROR_NONE && (File_Mode_User_Executable & info.mode) != 0 {
 					return possibility, true
 				}
 			}
@@ -66,9 +63,7 @@ resolve_home_dir :: proc(
 
 		home := os.get_env("HOME", context.temp_allocator)
 		if home == "" {
-			log.error(
-				"could not find $HOME in the environment to be able to resolve ~ in collection paths",
-			)
+			log.error("could not find $HOME in the environment to be able to resolve ~ in collection paths")
 			return path, false
 		}
 
@@ -76,21 +71,11 @@ resolve_home_dir :: proc(
 	}
 }
 
-when ODIN_OS == .Darwin || ODIN_OS == .Linux {
+when ODIN_OS == .Darwin || ODIN_OS == .Linux || ODIN_OS == .NetBSD {
 	FILE :: struct {}
 
-	run_executable :: proc(
-		command: string,
-		stdout: ^[]byte,
-	) -> (
-		u32,
-		bool,
-		[]byte,
-	) {
-		fp := popen(
-			strings.clone_to_cstring(command, context.temp_allocator),
-			"r",
-		)
+	run_executable :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) {
+		fp := popen(strings.clone_to_cstring(command, context.temp_allocator), "r")
 		if fp == nil {
 			return 0, false, stdout[0:]
 		}
@@ -119,4 +104,15 @@ when ODIN_OS == .Darwin || ODIN_OS == .Linux {
 		fgets :: proc "cdecl" (s: [^]byte, n: i32, stream: ^FILE) -> [^]u8 ---
 		fgetc :: proc "cdecl" (stream: ^FILE) -> i32 ---
 	}
+}
+
+get_executable_path :: proc(allocator := context.temp_allocator) -> string {
+	exe_path, ok := filepath.abs(os.args[0], context.temp_allocator)
+
+	if !ok {
+		log.error("Failed to resolve executable path")
+		return ""
+	}
+
+	return filepath.dir(exe_path, allocator)
 }

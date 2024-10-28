@@ -27,6 +27,9 @@ platform_os: map[string]bool = {
 	"openbsd" = true,
 	"wasi"    = true,
 	"wasm"    = true,
+	"haiku"   = true,
+	"netbsd"  = true,
+	"freebsd" = true,
 }
 
 
@@ -39,8 +42,28 @@ os_enum_to_string: map[runtime.Odin_OS_Type]string = {
 	.WASI         = "wasi",
 	.JS           = "js",
 	.Freestanding = "freestanding",
-	.OpenBSD      = "openbsd",
 	.JS           = "wasm",
+	.Haiku        = "haiku",
+	.OpenBSD      = "openbsd",
+	.NetBSD       = "netbsd",
+	.FreeBSD      = "freebsd",
+}
+
+@(private = "file")
+is_bsd_variant :: proc(name: string) -> bool {
+	return(
+		common.config.profile.os == os_enum_to_string[.FreeBSD] ||
+		common.config.profile.os == os_enum_to_string[.OpenBSD] ||
+		common.config.profile.os == os_enum_to_string[.NetBSD] \
+	)
+}
+
+@(private = "file")
+is_unix_variant :: proc(name: string) -> bool {
+	return(
+		common.config.profile.os == os_enum_to_string[.Linux] ||
+		common.config.profile.os == os_enum_to_string[.Darwin] \
+	)
 }
 
 skip_file :: proc(filename: string) -> bool {
@@ -50,10 +73,16 @@ skip_file :: proc(filename: string) -> bool {
 	if last_underscore_index + 1 < last_dot_index {
 		name_between := filename[last_underscore_index + 1:last_dot_index]
 
+		if name_between == "unix" {
+			return !is_unix_variant(name_between)
+		}
+
+		if name_between == "bsd" {
+			return !is_bsd_variant(name_between)
+		}
+
 		if _, ok := platform_os[name_between]; ok {
-			if name_between != os_enum_to_string[ODIN_OS] {
-				return true
-			}
+			return name_between != common.config.profile.os
 		}
 	}
 
@@ -65,10 +94,7 @@ try_build_package :: proc(pkg_name: string) {
 		return
 	}
 
-	matches, err := filepath.glob(
-		fmt.tprintf("%v/*.odin", pkg_name),
-		context.temp_allocator,
-	)
+	matches, err := filepath.glob(fmt.tprintf("%v/*.odin", pkg_name), context.temp_allocator)
 
 	if err != .None {
 		log.errorf("Failed to glob %v for indexing package", pkg_name)
@@ -77,9 +103,10 @@ try_build_package :: proc(pkg_name: string) {
 
 
 	arena: runtime.Arena
+
 	result := runtime.arena_init(
 		&arena,
-		mem.Megabyte * 325,
+		mem.Megabyte * 256,
 		runtime.default_allocator(),
 	)
 
@@ -96,10 +123,7 @@ try_build_package :: proc(pkg_name: string) {
 			data, ok := os.read_entire_file(fullpath, context.allocator)
 
 			if !ok {
-				log.errorf(
-					"failed to read entire file for indexing %v",
-					fullpath,
-				)
+				log.errorf("failed to read entire file for indexing %v", fullpath)
 				continue
 			}
 
@@ -129,8 +153,7 @@ try_build_package :: proc(pkg_name: string) {
 			ok = parser.parse_file(&p, &file)
 
 			if !ok {
-				if !strings.contains(fullpath, "builtin.odin") &&
-				   !strings.contains(fullpath, "intrinsics.odin") {
+				if !strings.contains(fullpath, "builtin.odin") && !strings.contains(fullpath, "intrinsics.odin") {
 					log.errorf("error in parse file for indexing %v", fullpath)
 				}
 				continue
@@ -144,34 +167,19 @@ try_build_package :: proc(pkg_name: string) {
 		}
 	}
 
-	build_cache.loaded_pkgs[strings.clone(pkg_name, indexer.index.collection.allocator)] =
-		PackageCacheInfo {
-			timestamp = time.now(),
-		}
+	build_cache.loaded_pkgs[strings.clone(pkg_name, indexer.index.collection.allocator)] = PackageCacheInfo {
+		timestamp = time.now(),
+	}
 }
 
 setup_index :: proc() {
-	build_cache.loaded_pkgs = make(
-		map[string]PackageCacheInfo,
-		50,
-		context.allocator,
-	)
-	symbol_collection := make_symbol_collection(
-		context.allocator,
-		&common.config,
-	)
+	build_cache.loaded_pkgs = make(map[string]PackageCacheInfo, 50, context.allocator)
+	symbol_collection := make_symbol_collection(context.allocator, &common.config)
 	indexer.index = make_memory_index(symbol_collection)
 
-	dir_exe, ok := filepath.abs(path.dir(os.args[0], context.temp_allocator))
+	dir_exe := common.get_executable_path(context.temp_allocator)
 
-	if !ok {
-		log.error(
-			"Failed to find ols executable path to build the builtin packages",
-		)
-		return
-	}
-
-	try_build_package(path.join({dir_exe, "builtin"}))
+	try_build_package(path.join({dir_exe, "builtin"}, context.temp_allocator))
 }
 
 free_index :: proc() {
