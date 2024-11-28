@@ -2329,6 +2329,7 @@ make_symbol_procedure_from_ast :: proc(
 		arg_types         = arg_types[:],
 		orig_arg_types    = arg_types[:],
 		generic           = v.generic,
+		diverging         = v.diverging,
 	}
 
 	if _, ok := common.get_attribute_objc_name(attributes); ok {
@@ -3111,8 +3112,47 @@ get_locals_for_range_stmt :: proc(
 		}
 	}
 
-	if symbol, ok := resolve_type_expression(ast_context, stmt.expr); ok {
+	symbol, ok := resolve_type_expression(ast_context, stmt.expr)
+
+	if v, ok := symbol.value.(SymbolProcedureValue); ok {
+		//Not quite sure how the custom iterator is defined, but it seems that it's three arguments. So temporarily just assume three arguments are iterators.
+		if len(v.return_types) != 3 && len(v.return_types) != 0 {
+			if v.return_types[0].type != nil {
+				symbol, ok = resolve_type_expression(ast_context, v.return_types[0].type)
+			} else if v.return_types[0].default_value != nil {
+				symbol, ok = resolve_type_expression(ast_context, v.return_types[0].default_value)
+			}
+		}
+	}
+
+	if ok {
 		#partial switch v in symbol.value {
+		case SymbolProcedureValue:
+			for val, i in stmt.vals {
+				if ident, ok := unwrap_ident(val); ok {
+					expr: ^ast.Expr
+
+					if v.return_types[i].type != nil {
+						expr = v.return_types[i].type
+					} else if v.return_types[i].default_value != nil {
+						expr = v.return_types[i].default_value
+					}
+
+					store_local(
+						ast_context,
+						ident,
+						expr,
+						ident.pos.offset,
+						ident.name,
+						ast_context.local_id,
+						ast_context.non_mutable_only,
+						false,
+						true,
+						symbol.pkg,
+						false,
+					)
+				}
+			}
 		case SymbolUntypedValue:
 			if len(stmt.vals) == 1 {
 				if ident, ok := unwrap_ident(stmt.vals[0]); ok {
