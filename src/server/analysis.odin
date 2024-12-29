@@ -1497,6 +1497,9 @@ expand_struct_usings :: proc(ast_context: ^AstContext, symbol: Symbol, value: Sy
 				}
 			}
 		}
+
+		//We have to resolve the expressions two times, so clear it to prevent it from being picked up as recursion.
+		delete_key(&ast_context.recursion_map, value.types[k])
 	}
 
 	if .ObjC in symbol.flags {
@@ -1614,6 +1617,8 @@ resolve_comp_literal :: proc(
 				position_context.function.type.results.list[return_index].type,
 			) or_return
 		}
+	} else if ast_context.value_decl.type != nil {
+		symbol = resolve_type_expression(ast_context, ast_context.value_decl.type) or_return
 	}
 
 	set_ast_package_set_scoped(ast_context, symbol.pkg)
