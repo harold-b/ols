@@ -21,3 +21,5 @@ ols.json
 *.dSYM
 
 .vscode/settings.json
+deno.lock
+settings.json
