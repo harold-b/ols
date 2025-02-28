@@ -465,6 +465,13 @@ collect_imports :: proc(collection: ^SymbolCollection, file: ast.File) {
 collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: string) -> common.Error {
 	forward, _ := filepath.to_slash(file.fullpath, context.temp_allocator)
 	directory := path.dir(forward, context.temp_allocator)
+
+	// If it's a source group, the package is the parent dir
+	is_source_group := false
+	if path.ext(directory) == ".odin" {
+		directory = path.dir(directory, context.temp_allocator)
+	}
+
 	package_map := get_package_mapping(file, collection.config, directory)
 
 	exprs := common.collect_globals(file, true)

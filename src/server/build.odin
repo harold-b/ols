@@ -14,6 +14,7 @@ import "core:path/filepath"
 import path "core:path/slashpath"
 import "core:strings"
 import "core:time"
+import "core:slice"
 
 import "src:common"
 
@@ -109,15 +110,49 @@ try_build_package :: proc(pkg_name: string) {
 	{
 		context.allocator = runtime.arena_allocator(&arena)
 
-		for fullpath in matches {
+		// NOTE(harold): This is set to a traditional index-based loop as to allow for resizing of the array below, for source groups.
+		//				 (Or does odin's for each style loop allow dynamic insertons?)
+		for i := 0; i < len(matches); i+=1 {
+			fullpath := matches[i]
+
 			if skip_file(filepath.base(fullpath)) {
+				continue
+			}
+
+			// If it is a source group (folder whose name ends in .odin), add the containing odin files
+			if os.is_dir(fullpath) {
+
+				sub_matches, err := filepath.glob(fmt.tprintf("%v/*.odin", fullpath), context.temp_allocator)
+
+				if err != .None {
+					log.errorf("Failed to glob '%v' when indexing package source group", fullpath)
+					continue
+				}
+
+				if len(sub_matches) < 1 {
+					continue
+				}
+	
+				old_length := len(matches)
+				new_length := len(matches) + len(sub_matches)
+				new_size   := new_length * size_of(string)
+				new_ptr, e := mem.resize(raw_data(matches), len(matches) * size_of(string), new_size, align_of(string), context.temp_allocator)
+				if e != nil {
+					log.errorf("Ran out of memory when resizing source group '%v' during indexing", fullpath)
+					continue
+				}
+				matches = slice.from_ptr(cast(^string)new_ptr, new_length)
+				for sm, j in sub_matches {
+					matches[old_length+j] = sm
+				}
+	
 				continue
 			}
 
 			data, ok := os.read_entire_file(fullpath, context.allocator)
 
 			if !ok {
-				log.errorf("failed to read entire file for indexing %v", fullpath)
+				log.errorf("failed to read entire file when indexing '%v'", fullpath)
 				continue
 			}
 
