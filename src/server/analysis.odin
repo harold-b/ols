@@ -4468,9 +4468,9 @@ get_document_position_node :: proc(node: ^ast.Node, position_context: ^DocumentP
 		   position_context.hint == .Hover ||
 		   position_context.hint == .SignatureHelp ||
 		   position_context.hint == .Completion {
-			position_context.selector = n.expr
-			position_context.field = n.call
-			position_context.selector_expr = node
+			// position_context.selector = n.expr
+			// position_context.field = n.call
+			// position_context.selector_expr = node
 
 			if _, ok := n.call.derived.(^ast.Call_Expr); ok {
 				position_context.call = n.call
