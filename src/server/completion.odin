@@ -578,10 +578,10 @@ get_selector_completion :: proc(
 						continue
 					}
 				}
-				if !position_context.arrow && .ObjC in symbol.flags {
+
+				if !position_context.arrow && .ObjC in selector.flags {
 					continue
 				}
-
 
 				item := CompletionItem {
 					label         = name,
