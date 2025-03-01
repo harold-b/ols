@@ -243,7 +243,13 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			}
 			document = cons(document, text("}"))
 		} else if len(v.fullpaths) == 1 {
-			document = cons_with_nopl(document, visit_expr(p, v.fullpaths[0]))
+			if _, ok := v.fullpaths[0].derived_expr.(^ast.Basic_Lit); ok {
+				document = cons_with_nopl(document, visit_expr(p, v.fullpaths[0]))
+			} else {
+				document = cons_with_nopl(document, text("{"))
+				document = cons(document, visit_expr(p, v.fullpaths[0]))
+				document = cons(document, text("}"))
+			}
 		}
 
 		return document
@@ -304,7 +310,7 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 		lhs = cons(lhs, visit_exprs(p, v.names, {.Add_Comma, .Glue}))
 
 		if v.type != nil {
-			lhs = cons(lhs, text(":"))
+			lhs = cons(lhs, text(" :" if p.config.spaces_around_colons else ":"))
 			lhs = cons_with_nopl(lhs, visit_expr(p, v.type))
 		} else {
 			if !v.is_mutable {
@@ -323,7 +329,13 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 
 			rhs = cons_with_nopl(rhs, visit_exprs(p, v.values, {.Add_Comma}, .Value_Decl))
 		} else if len(v.values) > 0 && v.type != nil {
-			rhs = cons_with_nopl(rhs, cons_with_nopl(text(":"), visit_exprs(p, v.values, {.Add_Comma})))
+			rhs = cons_with_nopl(
+				rhs,
+				cons_with_nopl(
+					text(" :" if p.config.spaces_around_colons else ":"),
+					visit_exprs(p, v.values, {.Add_Comma}),
+				),
+			)
 		} else {
 			rhs = cons_with_nopl(rhs, visit_exprs(p, v.values, {.Add_Comma}, .Value_Decl))
 		}
@@ -933,10 +945,6 @@ visit_stmt :: proc(
 			document = cons(document, visit_expr(p, v.label), text(":"), break_with_space())
 		}
 
-		if .Bounds_Check in v.state_flags {
-			document = cons(document, text("#bounds_check"), break_with_space())
-		}
-
 		if !uses_do {
 			document = cons(document, visit_begin_brace(p, v.pos, block_type))
 		} else {
@@ -1042,7 +1050,9 @@ visit_stmt :: proc(
 		}
 
 		document = cons_with_opl(document, visit_expr(p, v.cond))
+		set_source_position(p, v.body.pos)
 		document = cons_with_nopl(document, visit_stmt(p, v.body, .Switch_Stmt))
+		set_source_position(p, v.body.end)
 	case ^Case_Clause:
 		document = cons(document, text("case"))
 
@@ -1593,7 +1603,8 @@ visit_expr :: proc(
 
 		if v.fields != nil && len(v.fields.list) == 0 {
 			document = cons_with_nopl(document, text("{"))
-			document = cons(document, visit_struct_field_list(p, v.fields, {.Add_Comma}), text("}"))
+			comments, _ := visit_comments(p, v.end)
+			document = cons(document, nest(comments), newline(1), text("}"))
 		} else if v.fields != nil {
 			document = cons(document, break_with_space(), visit_begin_brace(p, v.pos, .Generic))
 
@@ -1786,19 +1797,16 @@ visit_expr :: proc(
 
 		if should_newline {
 			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Comp_Lit))
-			set_source_position(p, v.open)
-			document = cons(
-				document,
-				nest(
-					cons(
-						newline_position(p, 1, v.elems[0].pos),
-						visit_comp_lit_exprs(p, v^, {.Add_Comma, .Trailing, .Enforce_Newline}),
-					),
-				),
-			)
-			set_source_position(p, v.end)
-
-			document = cons(document, newline(1), text_position(p, "}", v.end))
+			inner_document := empty()
+			if len(v.elems) > 0 {
+				inner_document = cons(
+					newline_position(p, 1, v.elems[0].pos),
+					visit_comp_lit_exprs(p, v^, {.Add_Comma, .Trailing, .Enforce_Newline}),
+				)
+			} else {
+				inner_document, _ = visit_comments(p, v.end)
+			}
+			document = cons(document, nest(inner_document), newline(1), text_position(p, "}", v.end))
 		} else {
 			break_string := " " if v.type != nil else ""
 			document = cons(
@@ -2032,7 +2040,7 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 
 		if field.type != nil {
 			if len(field.names) != 0 {
-				document = cons(document, text(":"), align)
+				document = cons(document, text(" :" if p.config.spaces_around_colons else ":"), align)
 			}
 			document = cons_with_opl(document, visit_expr(p, field.type))
 		} else {
@@ -2350,7 +2358,7 @@ visit_signature_field :: proc(p: ^Printer, field: ^ast.Field, remove_blank := tr
 		document = cons(document, cons_with_nopl(flag, visit_exprs(p, field.names, {.Add_Comma})))
 
 		if len(field.names) != 0 && field.type != nil {
-			document = cons(document, text(":"), break_with_no_newline())
+			document = cons(document, text(" :" if p.config.spaces_around_colons else ":"), break_with_no_newline())
 		}
 	}
 
