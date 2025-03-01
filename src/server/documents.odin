@@ -175,6 +175,11 @@ document_setup :: proc(document: ^Document) {
 		document.package_name = path.dir(document.uri.path)
 	}
 
+	// If the parent is a source group, then the parent of that dir is the actual package
+	if path.ext(document.package_name) == ".odin" {
+		document.package_name = path.dir(document.package_name)
+	}
+
 	when ODIN_OS == .Windows {
 		correct := common.get_case_sensitive_path(document.uri.path)
 		fullpath: string
