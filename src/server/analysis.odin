@@ -2237,10 +2237,21 @@ make_int_basic_value :: proc(
 	return basic
 }
 
+package_from_path :: proc(file_path: string, allocator: mem.Allocator) -> string {
+	pkg, _ := filepath.to_slash(file_path, allocator)
+	pkg = path.dir(pkg, allocator)
+	if path.ext(pkg) == ".odin" {
+		pkg = path.dir(pkg, allocator)
+	}
+
+	return pkg
+}
+
 get_package_from_node :: proc(node: ast.Node) -> string {
-	slashed, _ := filepath.to_slash(node.pos.file, context.temp_allocator)
-	ret := path.dir(slashed, context.temp_allocator)
-	return ret
+	return package_from_path(node.pos.file, context.temp_allocator)
+	// slashed, _ := filepath.to_slash(node.pos.file, context.temp_allocator)
+	// ret := path.dir(slashed, context.temp_allocator)
+	// return ret
 }
 
 wrap_pointer :: proc(expr: ^ast.Expr, times: int) -> ^ast.Expr {
