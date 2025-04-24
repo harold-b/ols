@@ -571,6 +571,8 @@ get_selector_completion :: proc(
 					}
 				}
 
+				is_objc_class_method_selector := selector.type == .Struct && .ObjCIsClassMethod in symbol.flags
+
 				if position_context.arrow {
 					if symbol.type != .Function && symbol.type != .Type_Function {
 						continue
@@ -580,7 +582,7 @@ get_selector_completion :: proc(
 						continue
 					}
 				}
-				if !position_context.arrow && .ObjC in selector.flags && selector.type != .Struct {
+				else if .ObjC in selector.flags && !is_objc_class_method_selector {
 					continue
 				}
 
@@ -596,12 +598,31 @@ get_selector_completion :: proc(
 					documentation = symbol.doc,
 				}
 
+				if .ObjC in symbol.flags {
+					range, _ := get_range_from_selection_start_to_dot(position_context)
+
+					if !is_objc_class_method_selector {
+						range.end.character +=1	// Account for '>' in '->'
+					}
+
+					new_text: string = ""
+					if len(symbol.value.(SymbolProcedureValue).arg_types) > 0 {
+						new_text = fmt.tprintf("%v($0)", name)
+					} else {
+						new_text = fmt.tprintf("%v()$0", name)
+					}
+					item.kind             = .Field
+					item.textEdit         = TextEdit{newText = new_text, range = {start = range.end, end = range.end}}
+					item.insertTextFormat = .Snippet
+					item.InsertTextMode   = .asIs
+				}
+
 				append(&items, item)
 			} else {
 				//just give some generic symbol with name.
 				item := CompletionItem {
 					label         = symbol.name,
-					kind          = .Field,
+					kind          = .Method,
 					detail        = fmt.tprintf("%v: %v", name, common.node_to_string(v.types[i])),
 					documentation = symbol.doc,
 				}
