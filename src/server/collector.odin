@@ -556,6 +556,9 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 				if common.get_attribute_objc_is_class_method(expr.attributes) {
 					symbol.flags |= {.ObjCIsClassMethod}
 				}
+				if ivar := common.get_attribute_objc_ivar(expr.attributes); ivar != nil {
+					symbol.flags |= {.ObjCIvar}
+				}
 			}
 		case ^ast.Enum_Type:
 			token = v^
