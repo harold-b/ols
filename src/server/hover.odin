@@ -201,17 +201,30 @@ get_hover_information :: proc(document: ^Document, position: common.Position) ->
 
 		#partial switch v in selector.value {
 		case SymbolStructValue:
-			for name, i in v.names {
-				if name == field {
-					if symbol, ok := resolve_type_expression(&ast_context, v.types[i]); ok {
-						symbol.name = name
-						symbol.pkg = selector.name
-						symbol.signature = common.node_to_string(v.types[i])
-						hover.contents = write_hover_content(&ast_context, symbol)
-						return hover, true, true
+			struct_value := v
+			for {
+				for name, i in struct_value.names {
+					if name == field {
+						if symbol, ok := resolve_type_expression(&ast_context, struct_value.types[i]); ok {
+							symbol.name = name
+							symbol.pkg = selector.name
+							symbol.signature = common.node_to_string(struct_value.types[i])
+							hover.contents = write_hover_content(&ast_context, symbol)
+							return hover, true, true
+						}
 					}
 				}
+	
+				if struct_value.objc_ivar == nil {
+					break
+				}
+
+				if ivar_struct, ok := struct_value.objc_ivar.value.(SymbolStructValue); ok {
+					struct_value = ivar_struct
+					struct_value.objc_ivar = nil	// Make sure we don't cycle infinitely in case of improper code
+				}
 			}
+
 		case SymbolBitFieldValue:
 			for name, i in v.names {
 				if name == field {
