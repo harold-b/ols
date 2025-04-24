@@ -631,27 +631,30 @@ get_selector_completion :: proc(
 			}
 		}
 
-		// Add pseudo fields from the ivar tied to an ObjCc struct
+		// Add pseudo fields from the ivar tied to an ObjC struct
 		if v.objc_ivar != nil && !position_context.arrow {
-			if ivar, ok := v.objc_ivar.value.(SymbolStructValue); ok {
-				for name, i in ivar.names {
-					if name == "_" {
-						continue
-					}
-
-					set_ast_package_from_symbol_scoped(ast_context, selector)
-	
-					if symbol, ok := resolve_type_expression(ast_context, ivar.types[i]); ok {
-						item := CompletionItem {
-							label         = name,
-							kind          = .Field,
-							detail        = fmt.tprintf("%v: %v", name, common.node_to_string(ivar.types[i])),
-							documentation = symbol.doc,
+			if ivar_symbol, ok := resolve_type_expression(ast_context, v.objc_ivar); ok {
+				if ivar, ok := ivar_symbol.value.(SymbolStructValue); ok {
+					for name, i in ivar.names {
+						if name == "_" {
+							continue
 						}
-						append(&items, item)
+	
+						set_ast_package_from_symbol_scoped(ast_context, selector)
+		
+						if symbol, ok := resolve_type_expression(ast_context, ivar.types[i]); ok {
+							item := CompletionItem {
+								label         = name,
+								kind          = .Field,
+								detail        = fmt.tprintf("%v: %v", name, common.node_to_string(ivar.types[i])),
+								documentation = symbol.doc,
+							}
+							append(&items, item)
+						}
 					}
 				}
 			}
+			
 		}
 
 	case SymbolBitFieldValue:

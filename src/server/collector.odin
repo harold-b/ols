@@ -561,6 +561,9 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 				}
 				if ivar := common.get_attribute_objc_ivar(expr.attributes); ivar != nil {
 					symbol.flags |= {.ObjCIvar}
+					if struct_symbol, ok := &symbol.value.(SymbolStructValue); ok {
+						struct_symbol.objc_ivar = ivar
+					}
 				}
 			}
 		case ^ast.Enum_Type:

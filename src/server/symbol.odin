@@ -25,7 +25,7 @@ SymbolStructValue :: struct {
 	usings: map[int]bool,
 	poly:   ^ast.Field_List,
 	args:   []^ast.Expr, //The arguments in the call expression for poly
-	objc_ivar: ^Symbol,	// The ivar attached to this Objective-C struct
+	objc_ivar: ^ast.Expr,	// The ivar attached to this Objective-C struct
 }
 
 SymbolBitFieldValue :: struct {

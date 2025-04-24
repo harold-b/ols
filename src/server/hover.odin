@@ -219,9 +219,11 @@ get_hover_information :: proc(document: ^Document, position: common.Position) ->
 					break
 				}
 
-				if ivar_struct, ok := struct_value.objc_ivar.value.(SymbolStructValue); ok {
-					struct_value = ivar_struct
-					struct_value.objc_ivar = nil	// Make sure we don't cycle infinitely in case of improper code
+				if ivar_sym, ok := resolve_type_expression(&ast_context, struct_value.objc_ivar); ok {
+					if ivar_struct, ok := ivar_sym.value.(SymbolStructValue); ok {
+						struct_value = ivar_struct
+						struct_value.objc_ivar = nil	// Make sure we don't cycle infinitely in case of improper code
+					}
 				}
 			}
 
