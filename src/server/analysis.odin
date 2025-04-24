@@ -2624,10 +2624,15 @@ make_symbol_struct_from_ast :: proc(
 		poly   = v.poly_params,
 	}
 
+	ivar_expr: ^ast.Expr
 	if _, ok := common.get_attribute_objc_class_name(attributes); ok {
 		symbol.flags |= {.ObjC}
 		if common.get_attribute_objc_is_class_method(attributes) {
 			symbol.flags |= {.ObjCIsClassMethod}
+		}
+		if ivar := common.get_attribute_objc_ivar(attributes); ivar != nil {
+			symbol.flags |= {.ObjCIvar}
+			ivar_expr = ivar
 		}
 	}
 
@@ -2637,7 +2642,17 @@ make_symbol_struct_from_ast :: proc(
 
 	//TODO change the expand to not double copy the array, but just pass the dynamic arrays
 	if len(usings) > 0 || .ObjC in symbol.flags {
+
 		symbol.value = expand_struct_usings(ast_context, symbol, symbol.value.(SymbolStructValue))
+		struct_symbol := &symbol.value.(SymbolStructValue)
+
+		// Resolve the struct's ObjC ivar type, if it has one
+		if ivar_expr != nil {
+			if ivar_sym, ok := resolve_type_expression(ast_context, ivar_expr); ok {
+				struct_symbol.objc_ivar = new(Symbol, context.temp_allocator) 
+				struct_symbol.objc_ivar ^= ivar_sym
+			}
+		}
 	}
 
 	return symbol
