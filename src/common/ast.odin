@@ -147,6 +147,19 @@ get_attribute_objc_is_class_method :: proc(attributes: []^ast.Attribute) -> bool
 	return false
 }
 
+get_attribute_objc_ivar :: proc(attributes: []^ast.Attribute) -> ^ast.Expr {
+	for attribute in attributes {
+		for elem in attribute.elems {
+			if assign, ok := elem.derived.(^ast.Field_Value); ok {
+				if ident, ok := assign.field.derived.(^ast.Ident); ok && ident.name == "objc_ivar" {
+					return assign.value
+				}
+			}
+		}
+	}
+	return nil
+}
+
 unwrap_comp_literal :: proc(expr: ^ast.Expr) -> (^ast.Comp_Lit, int, bool) {
 	n := 0
 	expr := expr

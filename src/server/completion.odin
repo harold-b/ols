@@ -339,7 +339,8 @@ get_selector_completion :: proc(
 	if selector.type != .Variable &&
 	   selector.type != .Package &&
 	   selector.type != .Enum &&
-	   selector.type != .Function {
+	   selector.type != .Function &&
+	   !(selector.type == .Struct && .ObjC in selector.flags) {
 		return
 	}
 
@@ -579,7 +580,7 @@ get_selector_completion :: proc(
 						continue
 					}
 				}
-				if !position_context.arrow && .ObjC in selector.flags {
+				if !position_context.arrow && .ObjC in selector.flags && selector.type != .Struct {
 					continue
 				}
 
@@ -606,6 +607,29 @@ get_selector_completion :: proc(
 				}
 
 				append(&items, item)
+			}
+		}
+
+		// Add pseudo fields from the ivar tied to an ObjCc struct
+		if v.objc_ivar != nil && !position_context.arrow {
+			if ivar, ok := v.objc_ivar.value.(SymbolStructValue); ok {
+				for name, i in ivar.names {
+					if name == "_" {
+						continue
+					}
+
+					set_ast_package_from_symbol_scoped(ast_context, selector)
+	
+					if symbol, ok := resolve_type_expression(ast_context, ivar.types[i]); ok {
+						item := CompletionItem {
+							label         = name,
+							kind          = .Field,
+							detail        = fmt.tprintf("%v: %v", name, common.node_to_string(ivar.types[i])),
+							documentation = symbol.doc,
+						}
+						append(&items, item)
+					}
+				}
 			}
 		}
 

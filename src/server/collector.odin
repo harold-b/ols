@@ -455,6 +455,8 @@ collect_objc :: proc(collection: ^SymbolCollection, attributes: []^ast.Attribute
 				)
 			}
 		}
+	} else if value, ok := symbol.value.(SymbolStructValue); ok && (.ObjCIvar in symbol.flags) {
+		// TODO(harold): How can we get ivar fields here?
 	}
 }
 

@@ -25,6 +25,7 @@ SymbolStructValue :: struct {
 	usings: map[int]bool,
 	poly:   ^ast.Field_List,
 	args:   []^ast.Expr, //The arguments in the call expression for poly
+	objc_ivar: ^Symbol,	// The ivar attached to this Objective-C struct
 }
 
 SymbolBitFieldValue :: struct {
@@ -148,7 +149,8 @@ SymbolFlag :: enum {
 	Variable, //Symbols that are variable, this means their value decl was mutable
 	Local,
 	ObjC,
-	ObjCIsClassMethod, // should be set true only when ObjC is enabled
+	ObjCIsClassMethod,  // should be set true only when ObjC is enabled
+	ObjCIvar,			// Has an ObjC Ivar type (@objc_ivar)
 	Soa,
 }
 
