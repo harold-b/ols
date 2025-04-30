@@ -2643,9 +2643,7 @@ make_symbol_struct_from_ast :: proc(
 		}
 		if ivar := common.get_attribute_objc_ivar(attributes); ivar != nil {
 			symbol.flags |= {.ObjCIvar}
-			if s, ok := &symbol.value.(SymbolStructValue); ok {
-				ivar_expr = ivar_expr
-			}
+			ivar_expr = ivar	// Assign below since the symbol value will be reconstructed
 		}
 	}
 
