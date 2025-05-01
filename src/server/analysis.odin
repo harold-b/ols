@@ -1393,7 +1393,10 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 			return_symbol.name = node.name
 			return_symbol.type = global.mutable ? .Variable : .Constant
 		case:
-			return_symbol, ok = internal_resolve_type_expression(ast_context, global.expr)
+			if return_symbol, ok = internal_resolve_type_expression(ast_context, global.expr); ok {
+				// The package of the symbol should be set to hte calling package, not the referenced one
+				return_symbol.pkg = ast_context.current_package
+			}			
 		}
 
 		if is_distinct {
