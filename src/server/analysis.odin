@@ -1446,7 +1446,9 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 
 		//last option is to check the index
 		if symbol, ok := lookup(node.name, ast_context.current_package); ok {
-			return resolve_symbol_return(ast_context, symbol)
+			resolved_symbol, ok := resolve_symbol_return(ast_context, symbol)
+			resolved_symbol.pkg = symbol.pkg	// Do not override package for aliases
+			return resolved_symbol, ok
 		}
 
 		if !is_runtime {
