@@ -11,7 +11,7 @@
             // "pid": "41845"
             "pid": "${command:pickMyProcess}", // use ${command:pickProcess} to pick other users' processes
             "initCommands": [
-                "command source ${env:HOME}/.lldbinit"
+                "command script import ${env:HOME}/tools/scripts/odin.py"
             ]
         },
         {
@@ -24,7 +24,7 @@
             // "preLaunchTask": "build",
             "osx": {
                 "MIMode": "lldb"
-            }
+            },
         },
 
         {
