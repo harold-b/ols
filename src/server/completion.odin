@@ -337,24 +337,35 @@ get_selector_completion :: proc(
 	}
 
 	// Resolve an alias to its base type, even if distinct, so that we can resolve the fields.
-	alias_selector: Symbol
+	resolve_alias :: proc(ast_context: ^AstContext, original_selector: Symbol) -> (selector: Symbol, alias_selector: Symbol) {
+		selector = original_selector
+		ok: bool
 
-	if alias, is_alias := selector.value.(SymbolAliasValue); is_alias {
-		alias_selector = selector
-
-		// Recursively resolve to the aliased type
-		// TODO: Maybe we can set ast_context.resolve_aliases = true
-		for is_alias {
-			reset_ast_context(ast_context)
-			if selector, ok = resolve_type_expression(ast_context, alias.aliased_type); !ok {
-				return
+		if alias, is_alias := selector.value.(SymbolAliasValue); is_alias {
+			alias_selector = selector
+	
+			// Recursively resolve to the aliased type
+			// TODO: Maybe we can set ast_context.resolve_aliases = true
+			for is_alias {
+				reset_ast_context(ast_context)
+				if selector, ok = resolve_type_expression(ast_context, alias.aliased_type); !ok {
+					return
+				}
+	
+				alias, is_alias = selector.value.(SymbolAliasValue)
 			}
-
-			alias, is_alias = selector.value.(SymbolAliasValue)
+	
+			selector.type = .Variable
+			alias_selector.type = .Variable
 		}
 
-		selector.type = alias_selector.type
+		return
 	}
+	alias_selector: Symbol
+
+	selector, alias_selector = resolve_alias(ast_context, selector)
+
+
 
 	if selector.type != .Variable &&
 	   selector.type != .Package &&
@@ -385,6 +396,8 @@ get_selector_completion :: proc(
 				return
 			}
 		}
+
+		selector, alias_selector = resolve_alias(ast_context, selector)
 	}
 
 	if common.config.enable_fake_method {
