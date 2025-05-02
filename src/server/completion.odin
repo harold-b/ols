@@ -419,11 +419,10 @@ get_selector_completion :: proc(
 			if .Distinct not_in alias_symbol.flags {
 				append_method_completion(ast_context, selector, position_context, &items, receiver)
 			}
+		} else {
+			append_method_completion(ast_context, selector, position_context, &items, receiver)
 		}
-		
-	} else {
-		append_method_completion(ast_context, selector, position_context, &items, receiver)
-	}
+	} 
 
 
 	#partial switch v in selector.value {
