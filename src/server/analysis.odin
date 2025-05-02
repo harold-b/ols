@@ -1908,10 +1908,18 @@ resolve_unresolved_symbol :: proc(ast_context: ^AstContext, symbol: ^Symbol) -> 
 		set_ast_package_set_scoped(ast_context, symbol.pkg)
 
 		if ret, ok := resolve_type_expression(ast_context, v.expr); ok {
-			symbol.type = ret.type
-			symbol.signature = ret.signature
-			symbol.value = ret.value
-			symbol.pkg = ret.pkg
+			#partial switch e in v.expr.derived {
+				case ^ast.Ident,
+					 ^ast.Selector_Expr:
+					// This is an alias, keep the original package
+					symbol.type = ret.type
+					symbol.value = ret.value
+				case:
+					symbol.type = ret.type
+					symbol.signature = ret.signature
+					symbol.value = ret.value
+					symbol.pkg = ret.pkg
+			}
 		} else {
 			return false
 		}
