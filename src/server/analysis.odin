@@ -102,6 +102,7 @@ AstContext :: struct {
 	fullpath:         string,
 	non_mutable_only: bool, //Only store local value declarations that are non mutable.
 	overloading:      bool,
+	resolve_aliases:  bool,	// If it should resolve the type alias to its base type
 }
 
 make_ast_context :: proc(
@@ -1270,7 +1271,14 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 			return_symbol.name = node.name
 			return_symbol.type = local.variable ? .Variable : .Constant
 		case:
-			return_symbol, ok = internal_resolve_type_expression(ast_context, local.rhs)
+			#partial switch _ in local.rhs.derived {
+				case ^ast.Ident, ^ast.Selector_Expr:
+					if !ast_context.resolve_aliases {
+						return_symbol, ok = make_symbol_alias_from_ast(ast_context, local.lhs, local.rhs, node), true
+					}
+				case:
+					return_symbol, ok = internal_resolve_type_expression(ast_context, local.rhs)
+			}
 		}
 
 		if is_distinct {
@@ -1393,10 +1401,17 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 			return_symbol.name = node.name
 			return_symbol.type = global.mutable ? .Variable : .Constant
 		case:
-			if return_symbol, ok = internal_resolve_type_expression(ast_context, global.expr); ok {
-				// The package of the symbol should be set to hte calling package, not the referenced one
-				return_symbol.pkg = ast_context.current_package
-			}			
+			#partial switch _ in global.expr.derived {
+				case ^ast.Ident, ^ast.Selector_Expr:
+					if !ast_context.resolve_aliases {
+						return_symbol, ok = make_symbol_alias_from_ast(ast_context, global.name_expr, global.expr, node), true
+					}
+				case:
+					if return_symbol, ok = internal_resolve_type_expression(ast_context, global.expr); ok {
+						// The package of the symbol should be set to hte calling package, not the referenced one
+						return_symbol.pkg = ast_context.current_package
+					}			
+			}
 		}
 
 		if is_distinct {
@@ -2670,7 +2685,7 @@ make_symbol_struct_from_ast :: proc(
 
 	if ivar_expr != nil {
 		if s, ok := &symbol.value.(SymbolStructValue); ok {
-			s.objc_ivar = ivar_expr
+			s.objc_ivar = clone_type(ivar_expr, ast_context.allocator, nil)
 		}
 	} 
 
@@ -2711,6 +2726,25 @@ make_symbol_bit_field_from_ast :: proc(
 		names  = names[:],
 		types  = types[:],
 		ranges = ranges[:],
+	}
+
+	return symbol
+}
+
+make_symbol_alias_from_ast :: proc(
+	ast_context: ^AstContext,
+	decl: ^ast.Expr,
+	aliased_expr: ^ast.Expr,
+	ident: ast.Ident,
+) -> Symbol {
+	symbol := Symbol {
+		range = common.get_token_range(decl, ast_context.file.src),
+		type  = .Alias,
+		pkg   = get_package_from_node(decl),
+		name  = ident.name,
+		value = SymbolAliasValue {
+			aliased_type = clone_type(aliased_expr, ast_context.allocator, nil),
+		},
 	}
 
 	return symbol

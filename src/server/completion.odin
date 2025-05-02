@@ -336,11 +336,14 @@ get_selector_completion :: proc(
 		return
 	}
 
+	// Resolve an alias to its base type, even if distinct, so that we can resolve the fields.
 	alias_selector: Symbol
+
 	if alias, is_alias := selector.value.(SymbolAliasValue); is_alias {
 		alias_selector = selector
 
 		// Recursively resolve to the aliased type
+		// TODO: Maybe we can set ast_context.resolve_aliases = true
 		for is_alias {
 			reset_ast_context(ast_context)
 			if selector, ok = resolve_type_expression(ast_context, alias.aliased_type); !ok {
@@ -350,7 +353,6 @@ get_selector_completion :: proc(
 			alias, is_alias = selector.value.(SymbolAliasValue)
 		}
 
-		selector.name = alias_selector.name
 		selector.type = alias_selector.type
 	}
 
@@ -398,21 +400,31 @@ get_selector_completion :: proc(
 				set_ast_package_from_symbol_scoped(ast_context, alias_symbol)
 				append_method_completion(ast_context, alias_symbol, position_context, &items, receiver)
 
+				if .Distinct in alias_symbol.flags {
+					break
+				}
+
 				reset_ast_context(ast_context)
 				if alias_symbol, ok = resolve_type_expression(ast_context, alias.aliased_type); !ok {
 					break
 				}
 
 				alias, is_alias = alias_symbol.value.(SymbolAliasValue)
+				alias_symbol.type = selector.type
 			}
 
 			reset_ast_context(ast_context)
 			set_ast_package_from_symbol_scoped(ast_context, selector)
+
+			if .Distinct not_in alias_symbol.flags {
+				append_method_completion(ast_context, selector, position_context, &items, receiver)
+			}
 		}
 		
+	} else {
 		append_method_completion(ast_context, selector, position_context, &items, receiver)
-
 	}
+
 
 	#partial switch v in selector.value {
 	case SymbolFixedArrayValue:
