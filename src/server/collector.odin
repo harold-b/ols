@@ -349,6 +349,21 @@ collect_multi_pointer :: proc(
 	return SymbolMultiPointer{expr = elem}
 }
 
+collect_alias :: proc(
+	collection: ^SymbolCollection,
+	expr: ^ast.Expr,
+	package_map: map[string]string,
+	uri: string,
+) -> SymbolAliasValue {
+	cloned := clone_type(expr, collection.allocator, &collection.unique_strings)
+	replace_package_alias(cloned, package_map, collection)
+
+	value := SymbolAliasValue {
+		aliased_type = cloned,
+	}
+
+	return value
+}
 
 collect_generic :: proc(
 	collection: ^SymbolCollection,
@@ -389,10 +404,12 @@ collect_method :: proc(collection: ^SymbolCollection, symbol: Symbol) {
 			return
 		}
 
-		expr, _, ok := common.unwrap_pointer_ident(value.arg_types[0].type)
+		expr, _, ok: = common.unwrap_pointer_ident(value.arg_types[0].type)
 
 		if !ok {
-			return
+			// if expr, ok = value.arg_types[0].type.derived.(^ast.Selector_Expr); !ok{
+				return
+			// }
 		}
 
 		method: Method
@@ -499,7 +516,9 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 			}
 		}
 
+		is_distinct := false
 		if dist, ok := col_expr.derived.(^ast.Distinct_Type); ok {
+			is_distinct = true
 			if dist.type != nil {
 				col_expr = dist.type
 			}
@@ -618,14 +637,16 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 		case ^ast.Basic_Lit:
 			token = v^
 			symbol.value = collect_generic(collection, col_expr, package_map, uri)
-		case ^ast.Ident:
-			token = v^
-			symbol.value = collect_generic(collection, col_expr, package_map, uri)
+		case ^ast.Ident, ^ast.Selector_Expr:
+
+			token = col_expr
 
 			if expr.mutable {
+				symbol.value = collect_generic(collection, col_expr, package_map, uri)
 				token_type = .Variable
 			} else {
-				token_type = .Unresolved
+				symbol.value = collect_alias(collection, col_expr, package_map, uri)
+				token_type = .Alias
 			}
 		case:
 			// default
@@ -671,6 +692,10 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 
 		if expr.private == .Package {
 			symbol.flags |= {.PrivatePackage}
+		}
+
+		if is_distinct {
+			symbol.flags |= {.Distinct}
 		}
 
 		symbol.uri = get_index_unique_string(collection, uri)

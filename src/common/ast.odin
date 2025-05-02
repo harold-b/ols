@@ -185,7 +185,7 @@ unwrap_comp_literal :: proc(expr: ^ast.Expr) -> (^ast.Comp_Lit, int, bool) {
 	return {}, n, false
 }
 
-unwrap_pointer_ident :: proc(expr: ^ast.Expr) -> (ast.Ident, int, bool) {
+unwrap_pointer_ident :: proc(expr: ^ast.Expr) -> (ast.Expr, int, bool) {
 	n := 0
 	expr := expr
 	for expr != nil {
@@ -213,10 +213,14 @@ unwrap_pointer_ident :: proc(expr: ^ast.Expr) -> (ast.Ident, int, bool) {
 
 	if expr != nil {
 		if ident, ok := expr.derived.(^ast.Ident); ok {
-			return ident^, n, ok
+			return ident, n, ok
 		}
+	}
 
-		return {}, n, false
+	if expr != nil {
+		if sel, ok := expr.derived.(^ast.Selector_Expr); ok {
+			return sel, n, ok
+		}
 	}
 
 	return {}, n, false

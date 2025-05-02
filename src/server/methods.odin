@@ -48,6 +48,7 @@ append_method_completion :: proc(
 	position_context: ^DocumentPositionContext,
 	items: ^[dynamic]CompletionItem,
 	receiver: string,
+	override_package: Maybe(string) = nil,
 ) {
 	if selector_symbol.type != .Variable && selector_symbol.type != .Struct {
 		return
@@ -59,10 +60,12 @@ append_method_completion :: proc(
 		return
 	}
 
+	package_to_use := override_package.? or_else selector_symbol.pkg
+
 	for k, v in indexer.index.collection.packages {
 		method := Method {
 			name = selector_symbol.name,
-			pkg  = selector_symbol.pkg,
+			pkg  = package_to_use,
 		}
 		if symbols, ok := &v.methods[method]; ok {
 			for &symbol in symbols {

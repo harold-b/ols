@@ -336,6 +336,24 @@ get_selector_completion :: proc(
 		return
 	}
 
+	alias_selector: Symbol
+	if alias, is_alias := selector.value.(SymbolAliasValue); is_alias {
+		alias_selector = selector
+
+		// Recursively resolve to the aliased type
+		for is_alias {
+			reset_ast_context(ast_context)
+			if selector, ok = resolve_type_expression(ast_context, alias.aliased_type); !ok {
+				return
+			}
+
+			alias, is_alias = selector.value.(SymbolAliasValue)
+		}
+
+		selector.name = alias_selector.name
+		selector.type = alias_selector.type
+	}
+
 	if selector.type != .Variable &&
 	   selector.type != .Package &&
 	   selector.type != .Enum &&
@@ -368,7 +386,32 @@ get_selector_completion :: proc(
 	}
 
 	if common.config.enable_fake_method {
+
+		if alias, is_alias := alias_selector.value.(SymbolAliasValue); is_alias {
+			alias_symbol := alias_selector
+
+			// First add methods for the current package, if any
+			append_method_completion(ast_context, alias_symbol, position_context, &items, receiver, ast_context.document_package)
+
+			for is_alias {
+				reset_ast_context(ast_context)
+				set_ast_package_from_symbol_scoped(ast_context, alias_symbol)
+				append_method_completion(ast_context, alias_symbol, position_context, &items, receiver)
+
+				reset_ast_context(ast_context)
+				if alias_symbol, ok = resolve_type_expression(ast_context, alias.aliased_type); !ok {
+					break
+				}
+
+				alias, is_alias = alias_symbol.value.(SymbolAliasValue)
+			}
+
+			reset_ast_context(ast_context)
+			set_ast_package_from_symbol_scoped(ast_context, selector)
+		}
+		
 		append_method_completion(ast_context, selector, position_context, &items, receiver)
+
 	}
 
 	#partial switch v in selector.value {

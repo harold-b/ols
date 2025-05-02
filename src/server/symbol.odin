@@ -112,6 +112,10 @@ SymbolMatrixValue :: struct {
 	expr: ^ast.Expr,
 }
 
+SymbolAliasValue :: struct {
+	aliased_type: ^ast.Expr,	// Either Ident or Selector
+}
+
 /*
 	Generic symbol that is used by the indexer for any variable type(constants, defined global variables, etc),
 */
@@ -138,6 +142,7 @@ SymbolValue :: union {
 	SymbolUntypedValue,
 	SymbolMatrixValue,
 	SymbolBitFieldValue,
+	SymbolAliasValue,
 }
 
 SymbolFlag :: enum {
@@ -182,6 +187,7 @@ SymbolType :: enum {
 	Type_Function = 23,
 	Union         = 7,
 	Type          = 8, //For maps, arrays, slices, dyn arrays, matrixes, etc
+	Alias         = 10, // Alias to another type
 	Unresolved    = 1, //Use text if not being able to resolve it.
 }
 
@@ -254,6 +260,8 @@ free_symbol :: proc(symbol: Symbol, allocator: mem.Allocator) {
 		delete(v.names, allocator)
 		delete(v.ranges, allocator)
 		common.free_ast(v.types, allocator)
+	case SymbolAliasValue:
+		common.free_ast(v.aliased_type, allocator)
 	}
 }
 
@@ -285,6 +293,8 @@ symbol_type_to_completion_kind :: proc(type: SymbolType) -> CompletionItemKind {
 		return .Text
 	case .Type:
 		return .Constant
+	case .Alias:
+		return .Field	//???
 	case:
 		return .Text
 	}
