@@ -67,10 +67,20 @@ append_method_completion :: proc(
 			name = selector_symbol.name,
 			pkg  = package_to_use,
 		}
+
+	 	is_same_package := k == ast_context.document_package
+
 		if symbols, ok := &v.methods[method]; ok {
 			for &symbol in symbols {
 				resolve_unresolved_symbol(ast_context, &symbol)
 				build_procedure_symbol_signature(&symbol)
+
+				if (.PrivateFile in symbol.flags) && symbol.doc != ast_context.file.fullpath {
+					continue
+				}
+				if (.PrivatePackage in symbol.flags) && !is_same_package {
+					continue
+				}
 
 				range, ok := get_range_from_selection_start_to_dot(position_context)
 

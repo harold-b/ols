@@ -407,9 +407,7 @@ collect_method :: proc(collection: ^SymbolCollection, symbol: Symbol) {
 		expr, _, ok: = common.unwrap_pointer_ident(value.arg_types[0].type)
 
 		if !ok {
-			// if expr, ok = value.arg_types[0].type.derived.(^ast.Selector_Expr); !ok{
-				return
-			// }
+			return
 		}
 
 		method: Method
@@ -496,7 +494,7 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 
 	package_map := get_package_mapping(file, collection.config, directory)
 
-	exprs := common.collect_globals(file, false)
+	exprs := common.collect_globals(file, true)
 
 	collect_imports(collection, file)
 
