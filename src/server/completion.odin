@@ -1390,6 +1390,10 @@ get_identifier_completion :: proc(
 			break
 		}
 
+		if v.name_expr.end.offset == position_context.position {
+			continue
+		}
+
 		//combined is sorted and should do binary search instead.
 		for result in combined {
 			if result.name == k {
@@ -1427,7 +1431,7 @@ get_identifier_completion :: proc(
 	}
 
 	for _, local in ast_context.locals {
-		for k, v in local {
+		next_local: for k, v in local {
 			if position_context.global_lhs_stmt {
 				break
 			}
@@ -1436,6 +1440,14 @@ get_identifier_completion :: proc(
 
 			if local_offset == -1 {
 				continue
+			} 
+
+			for l in v {
+				if ident, ok := l.lhs.derived_expr.(^ast.Ident); ok {
+					if ident.end.offset == position_context.position {
+						continue next_local
+					}
+				}
 			}
 
 			reset_ast_context(ast_context)
