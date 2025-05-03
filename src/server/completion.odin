@@ -355,6 +355,7 @@ get_selector_completion :: proc(
 				alias, is_alias = selector.value.(SymbolAliasValue)
 			}
 	
+			// NOTE: I don't know if this is ok. We ought to figure out what's correct
 			selector.type = .Variable
 			alias_selector.type = .Variable
 		}
