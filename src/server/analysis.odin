@@ -1273,11 +1273,12 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 		case:
 			#partial switch _ in local.rhs.derived {
 				case ^ast.Ident, ^ast.Selector_Expr:
-					if !ast_context.resolve_aliases {
+					if ast_context.resolve_aliases {
 						return_symbol, ok = make_symbol_alias_from_ast(ast_context, local.lhs, local.rhs, node), true
 					}
-				case:
-					return_symbol, ok = internal_resolve_type_expression(ast_context, local.rhs)
+				}
+			if !ok {
+				return_symbol, ok = internal_resolve_type_expression(ast_context, local.rhs)
 			}
 		}
 
